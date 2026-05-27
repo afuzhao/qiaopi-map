@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>潮汕侨批网络 · Qiaopi Network</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;600&family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root {
+  --ink: #1a1209;
+  --paper: #f5efe3;
+  --paper-dark: #ede4d0;
+  --sepia: #8b6914;
+  --sepia-light: #c9a84c;
+  --accent: #c9872a;
+  --sidebar-w: 380px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Cormorant Garamond','Noto Serif SC',serif; background:var(--ink); color:var(--ink); height:100vh; overflow:hidden; display:flex; flex-direction:column; }
+
+header {
+  background:var(--ink); color:var(--paper);
+  padding:12px 24px; display:flex; align-items:center; justify-content:space-between;
+  border-bottom:1px solid #3a2e1a; flex-shrink:0; z-index:1000;
+}
+.header-title { text-align:left; width:auto; max-width:100%; }
+.header-title h1 { font-family:'Noto Serif SC',serif; font-weight:300; font-size:1.05rem; letter-spacing:0.15em; color:var(--sepia-light); }
+.header-title .subtitle { display:block; margin-top:6px; font-style:italic; font-size:0.88rem; color:#a89060; line-height:1.4; }
+.header-controls { display:flex; gap:18px; align-items:center; }
+.nav-links { display:flex; gap:16px; align-items:center; }
+.nav-link { font-family:'Noto Serif SC',serif; font-size:0.78rem; letter-spacing:0.08em; text-transform:uppercase; color:#b89c66; text-decoration:none; padding:4px 0; border-bottom:1px solid transparent; transition:color 0.2s,border-color 0.2s; }
+.nav-link:hover { color:var(--sepia-light); border-bottom-color:#7f6837; }
+.nav-link.active { color:var(--sepia-light); border-bottom-color:var(--sepia-light); }
+.language-select {
+  font-family:'Noto Serif SC',serif;
+  font-size:0.72rem;
+  color:#d0b06d;
+  background:#21180c;
+  border:1px solid #5d4b27;
+  border-radius:2px;
+  padding:5px 8px;
+  outline:none;
+}
+.map-back-link {
+  position:absolute;
+  top:16px;
+  left:16px;
+  z-index:700;
+  font-family:'Noto Serif SC',serif;
+  font-size:0.66rem;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  text-decoration:none;
+  color:#f0e2c4;
+  background:rgba(26,18,9,0.78);
+  border:1px solid rgba(201,168,76,0.55);
+  padding:6px 10px;
+  border-radius:2px;
+}
+.map-back-link:hover {
+  background:rgba(201,168,76,0.22);
+}
+
+.page-view { display:none; flex:1; min-height:0; }
+.page-view.active { display:flex; }
+
+.main { display:flex; flex:1; overflow:hidden; }
+.main.page-view { display:none; }
+.main.page-view.active { display:flex; }
+#map { flex:1; }
+.leaflet-container { background:#b8d0e8 !important; }
+
+/* SIDEBAR */
+.sidebar { width:var(--sidebar-w); background:var(--paper); display:flex; flex-direction:column; overflow:hidden; border-left:1px solid #c9b98a; flex-shrink:0; }
+
+.sidebar-header { padding:16px 20px 12px; border-bottom:1px solid #d9c99a; background:var(--paper-dark); }
+.corridor-tag { font-family:'Noto Serif SC',serif; font-size:0.65rem; letter-spacing:0.2em; color:var(--sepia); margin-bottom:3px; }
+.sidebar-header h2 { font-size:1.25rem; font-weight:400; line-height:1.3; }
+.sidebar-header .meta { font-size:0.78rem; color:#7a6030; margin-top:4px; font-style:italic; }
+
+/* FILTER ROW */
+.filter-row { display:flex; gap:0; border-bottom:1px solid #d9c99a; background:var(--paper-dark); flex-shrink:0; }
+.tab { flex:1; padding:8px 4px; font-family:'Noto Serif SC',serif; font-size:0.68rem; letter-spacing:0.06em; text-align:center; cursor:pointer; color:#8a7040; border:none; background:none; border-bottom:2px solid transparent; transition:all 0.2s; }
+.tab.active { color:var(--ink); border-bottom-color:var(--accent); background:var(--paper); }
+
+/* STATS */
+.stats-bar { display:flex; border-bottom:1px solid #d9c99a; flex-shrink:0; }
+.stat { flex:1; padding:7px 6px; text-align:center; border-right:1px solid #d9c99a; }
+.stat:last-child { border-right:none; }
+.stat-num { font-family:'Cormorant Garamond',serif; font-size:1.2rem; color:var(--accent); display:block; line-height:1; }
+.stat-label { font-size:0.58rem; letter-spacing:0.08em; color:#9a7840; text-transform:uppercase; display:block; margin-top:1px; }
+
+/* TIMELINE */
+.timeline { flex:1; overflow-y:auto; padding:12px 16px; }
+.timeline::-webkit-scrollbar { width:3px; }
+.timeline::-webkit-scrollbar-track { background:var(--paper); }
+.timeline::-webkit-scrollbar-thumb { background:#c9b98a; border-radius:2px; }
+
+.year-label { font-size:0.68rem; letter-spacing:0.18em; color:var(--sepia); margin:14px 0 6px 24px; }
+.letter-card { display:flex; gap:10px; padding:8px 10px; margin-bottom:4px; border-radius:2px; cursor:pointer; transition:all 0.15s; border:1px solid transparent; }
+.letter-card:hover { background:var(--paper-dark); border-color:#d9c99a; }
+.letter-card.active { background:#f0e6c8; border-color:var(--accent); }
+.card-bar { width:3px; border-radius:2px; flex-shrink:0; align-self:stretch; }
+.card-body { flex:1; min-width:0; }
+.card-date { font-size:0.72rem; color:#7a6030; font-style:italic; margin-bottom:1px; }
+.card-amount { font-family:'Noto Serif SC',serif; font-size:0.85rem; color:var(--ink); }
+.card-meta { font-size:0.68rem; color:#9a8050; margin-top:1px; }
+.card-page { font-size:0.64rem; color:#b0986a; align-self:flex-start; padding-top:1px; flex-shrink:0; }
+
+/* DETAIL PANEL */
+.detail-panel { border-top:1px solid #d9c99a; padding:14px 18px; background:#ede5cc; display:none; flex-shrink:0; }
+.detail-panel.open { display:block; }
+.detail-title { font-family:'Noto Serif SC',serif; font-size:0.65rem; letter-spacing:0.16em; color:var(--sepia); margin-bottom:8px; }
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; }
+.df label { display:block; font-size:0.6rem; letter-spacing:0.1em; color:#9a7840; margin-bottom:1px; text-transform:uppercase; }
+.df span { font-family:'Noto Serif SC',serif; font-size:0.82rem; color:var(--ink); }
+
+/* INTRO */
+.intro { padding:28px 20px; text-align:center; color:#8a7040; }
+.intro-icon { font-size:1.8rem; margin-bottom:10px; }
+.intro p { font-size:0.84rem; line-height:1.7; font-style:italic; }
+
+/* POPUP */
+.leaflet-popup-content-wrapper { background:var(--ink); color:var(--paper); border-radius:2px; font-family:'Noto Serif SC',serif; font-size:0.8rem; box-shadow:0 4px 20px rgba(0,0,0,0.6); }
+.leaflet-popup-tip { background:var(--ink); }
+.leaflet-popup-close-button { color:var(--sepia-light) !important; }
+.popup-inner h3 { font-size:0.92rem; color:var(--sepia-light); margin-bottom:3px; }
+.popup-inner p { font-size:0.72rem; color:#c8aa78; line-height:1.6; }
+.popup-count { display:inline-block; margin-top:4px; background:rgba(201,168,76,0.2); padding:1px 6px; border-radius:2px; font-size:0.68rem; color:var(--sepia-light); }
+
+/* receiving marker label */
+.recv-label { background:transparent; border:none; }
+.recv-label div { font-family:'Noto Serif SC',serif; font-size:0.68rem; color:#fff; background:rgba(26,18,9,0.75); padding:1px 5px; border-radius:2px; white-space:nowrap; margin-top:2px; text-align:center; }
+
+/* MARKER PULSE (sending / receiving dots) */
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 0.85; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* ANIMATED ARC */
+@keyframes dashMove { to { stroke-dashoffset: -20; } }
+
+/* ABOUT PAGE */
+.about-page { background:var(--paper); color:#3b2b16; overflow-y:auto; flex-direction:column; padding-bottom:28px; }
+.about-inner { width:min(860px,100%); margin:0 auto; padding:44px 28px 56px; }
+.about-kicker { font-family:'Noto Serif SC',serif; font-size:0.7rem; letter-spacing:0.22em; color:#8f7342; text-transform:uppercase; margin-bottom:14px; }
+.about-inner h2 { font-family:'Noto Serif SC',serif; font-weight:400; font-size:1.7rem; color:#2d1d0d; margin-bottom:14px; }
+.about-inner p { font-size:1.08rem; line-height:1.75; margin-bottom:18px; color:#4a3820; }
+.lang-copy { display:none; }
+html[lang="zh-Hans"] .lang-copy[data-lang="zh-Hans"],
+html[lang="zh-Hant"] .lang-copy[data-lang="zh-Hant"],
+html[lang="en"] .lang-copy[data-lang="en"] { display:block; }
+.about-lede { border-left:2px solid #d4ba80; padding-left:16px; margin-top:20px; }
+.about-accordion { display:grid; gap:12px; margin-top:28px; }
+.about-accordion details { background:#f8f1e3; border:1px solid #dac78f; border-radius:2px; }
+.about-accordion details[open] { background:#fbf6ea; }
+.about-accordion summary { cursor:pointer; list-style:none; padding:14px 16px; font-family:'Noto Serif SC',serif; font-size:0.98rem; color:#4e3718; letter-spacing:0.04em; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.about-accordion summary::-webkit-details-marker { display:none; }
+.about-accordion summary::after { content:'+'; color:#9d7a33; font-size:1.1rem; }
+.about-accordion details[open] summary::after { content:'−'; }
+.about-content { border-top:1px solid #e2d2a5; padding:16px 18px 18px; }
+.about-content h3 { font-family:'Noto Serif SC',serif; font-size:0.98rem; font-weight:400; color:#5a421f; margin:14px 0 8px; }
+.about-content h3:first-child { margin-top:0; }
+.about-content ul, .about-content ol { margin:0 0 18px 22px; color:#4a3820; }
+.about-content li { font-size:1.02rem; line-height:1.65; margin-bottom:6px; }
+.about-cta { margin-top:20px; }
+.about-button {
+  display:inline-block;
+  text-decoration:none;
+  font-family:'Noto Serif SC',serif;
+  font-size:0.76rem;
+  letter-spacing:0.12em;
+  text-transform:uppercase;
+  color:#2f220f;
+  border:1px solid #b9964a;
+  background:#e8d7ad;
+  padding:10px 16px;
+  transition:background 0.2s,color 0.2s,border-color 0.2s;
+}
+.about-button:hover {
+  background:#b9964a;
+  color:#f8f0dc;
+  border-color:#9f7f37;
+}
+
+.about-footer {
+  background:#171108;
+  color:#8f7342;
+  border-top:1px solid #3a2e1a;
+  padding:14px 28px 18px;
+  font-size:0.76rem;
+  letter-spacing:0.03em;
+  font-style:italic;
+  line-height:1.6;
+  max-width:min(860px,100%);
+  margin:32px auto 0;
+}
+.about-footer:empty { display:none; }
+
+@media (max-width: 900px) {
+  body { height:auto; min-height:100vh; }
+  .page-view.active { min-height:calc(100vh - 128px); }
+  header { flex-wrap:wrap; gap:8px 16px; }
+  .header-controls { flex-wrap:wrap; gap:10px 14px; }
+  .header-title .subtitle { font-size:0.76rem; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">
+    <h1 data-i18n="siteTitle">潮汕侨批网络</h1>
+    <span class="subtitle" data-i18n="siteSubtitle">潮汕侨批 · 书信与汇款网络</span>
+  </div>
+  <div class="header-controls">
+    <nav class="nav-links" aria-label="Primary">
+      <a class="nav-link" href="#about" data-route="about" data-i18n="navAbout">关于</a>
+      <a class="nav-link" href="#map" data-route="map" data-i18n="navMap">地图</a>
+    </nav>
+    <select id="languageSelect" class="language-select" aria-label="Language">
+      <option value="zh-Hans">简体</option>
+      <option value="zh-Hant">繁體</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+</header>
+
+<div class="main page-view" id="mapPage" data-page="map">
+  <a class="map-back-link" href="#about" data-i18n="backAbout">返回关于</a>
+  <div id="map"></div>
+  <div class="sidebar">
+    <div class="sidebar-header" id="sbHead">
+      <div class="corridor-tag" data-i18n="archiveTag">侨批档案</div>
+      <h2 data-i18n="selectCorridor">选择线路</h2>
+      <div class="meta" data-i18n="clickMapHint">点击地图中的弧线或标记</div>
+    </div>
+    <div class="filter-row">
+      <button class="tab active" onclick="setTab('all',this)" data-i18n="tabAll">全部</button>
+      <button class="tab" onclick="setTab('封',this)" data-i18n="tabEnvelope">封</button>
+      <button class="tab" onclick="setTab('信',this)" data-i18n="tabLetter">含信</button>
+    </div>
+    <div class="stats-bar" id="statsBar" style="display:none">
+      <div class="stat"><span class="stat-num" id="sLetters">—</span><span class="stat-label" data-i18n="statLetters">批信</span></div>
+      <div class="stat"><span class="stat-num" id="sSpan">—</span><span class="stat-label" data-i18n="statPeriod">时期</span></div>
+      <div class="stat"><span class="stat-num" id="sSenders">—</span><span class="stat-label" data-i18n="statSenders">寄批人</span></div>
+    </div>
+    <div class="timeline" id="timeline">
+      <div class="intro">
+        <div class="intro-icon">✦</div>
+        <p data-i18n="loadingArchive">正在加载侨批档案…</p>
+      </div>
+    </div>
+    <div class="detail-panel" id="detailPanel"></div>
+  </div>
+</div>
+
+<section class="about-page page-view" id="aboutPage" data-page="about">
+  <div class="about-inner">
+    <div class="lang-copy" data-lang="zh-Hans">
+      <div class="about-kicker">引言</div>
+      <h2>侨批与潮汕跨国网络</h2>
+      <p class="about-lede">
+        “侨批”（Qiaopi，即“海外华侨汇款信”）是指19世纪末至20世纪中期，海外华侨群体与身处中国南方地区（尤其是广东、福建两省）的亲属之间往来的手写信函。这些信件通常附带汇款，同时也承载着家事近况与嘱托，维系着因移民而分隔两地的亲情纽带。
+      </p>
+      <p>
+        本地图通过可视化展示汕头大学所收藏的50,064封侨批的元数据，揭示了将海外华侨与故土紧密相连的跨国网络。通过绘制发信人所在地与收信地点的分布图，我们得以追溯那些维系着东南亚乃至更广阔地区华侨社群生存与发展的资金流向与亲缘脉络。
+      </p>
+      <div class="about-cta">
+        <a class="about-button" href="#map">探索地图</a>
+      </div>
+
+      <div class="about-accordion">
+        <details>
+          <summary>项目宗旨</summary>
+          <div class="about-content">
+            <h3>致研究人员</h3>
+            <p>本项目提供数字化探索平台，学者可借此：</p>
+            <ul>
+              <li>按地区和时间段追溯移民及汇款的流动模式</li>
+              <li>识别主要的汇款集散中心</li>
+              <li>探究海外华人社区的地理分布状况</li>
+              <li>研究中国各县域与其海外侨民群体之间的联系网络</li>
+            </ul>
+            <h3>致后裔群体</h3>
+            <p>如今，许多人正是当年“侨批”寄件人或收件人的后裔。本图谱可作为一份寻亲访祖的辅助工具：</p>
+            <ul>
+              <li>通过寄件人或收件人的姓名进行检索，以查找家族信函</li>
+              <li>了解您的先辈曾经生活、工作以及汇款的具体地点</li>
+              <li>将家族历史资料存入一个共享且易于查阅的数字档案库中</li>
+            </ul>
+            <h3>致社会大众</h3>
+            <p>“侨批”网络所承载的是一个更为宏大的历史叙事：</p>
+            <ul>
+              <li>揭示移民迁徙、侨汇往来以及家族网络如何共同推动并维系了中国社会的发展</li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>如何使用本地图</summary>
+          <div class="about-content">
+            <ol>
+              <li>点击某个国家，即可查看该国境内的所有寄出城市及其接收目的地。</li>
+              <li>选择某个城市，即可放大地图并查看来自该地点的具体信件。</li>
+              <li>按姓名（寄件人或收件人）进行搜索，以查找特定信件并追溯家族网络。</li>
+            </ol>
+          </div>
+        </details>
+
+        <details>
+          <summary>研究发现</summary>
+          <div class="about-content">
+            <h3>侨批网络的规模</h3>
+            <p>汕头大学收藏的侨批元数据涵盖了50,064封信件，其寄出地遍布东南亚及其他地区的数十个城市。</p>
+
+            <h3>信件的寄出地</h3>
+            <p>绝大多数（85.4%）信件源自三个东南亚城市：曼谷、新加坡和吉隆坡。</p>
+            <p>另有一小部分但具有重要意义的信件（4.9%）来自马来西亚的一些中小城市（麻坡、新山、槟城、古晋）。</p>
+            <p>其余信件则分别寄自香港（1,164封，占2.3%）和汕头本地（1,111封，占2.2%）。</p>
+
+            <h3>信件的接收地</h3>
+            <p>信件主要汇聚于潮汕地区的五个县域，这五个县域的接收量占到了全部接收量的96.5%：潮安，澄海，揭阳，饶平，普宁。</p>
+            <p>其中，仅潮安和澄海两地就接收了近88%的信件。</p>
+
+            <h3>迁徙廊道：谁寄给了谁</h3>
+            <p>不同的寄出城市呈现出截然不同的接收分布模式：</p>
+            <h3>来自泰国（曼谷）的信件</h3>
+            <ul>
+              <li>澄海接收了52.6%（12,721封）</li>
+              <li>潮安接收了32.3%（7,818封）</li>
+            </ul>
+            <p>来自泰国的信件主要集中在澄海。</p>
+            <h3>来自新加坡的信件</h3>
+            <ul>
+              <li>潮安接收了78.3%（14,527封）</li>
+              <li>澄海接收了14.8%（2,739封）</li>
+            </ul>
+            <p>新加坡的情况则呈现出相反的模式，信件主要偏向于潮安。</p>
+            <h3>来自马来西亚的信件</h3>
+            <ul>
+              <li>潮安接收了72.9%（3,226封）</li>
+              <li>澄海接收了17.6%（778封）</li>
+            </ul>
+            <p>马来西亚与新加坡相似，潮安是主要的接收地。</p>
+            <p>海外移民网络具有高度的地域特异性。并非所有的移民都迁往了同一个目的地，同样，也并非所有的寄出城市都以均等的比例对应着相同的接收县域。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>数据质量与缺失情况</summary>
+          <div class="about-content">
+            <p>经数据清洗后，有 555 封信件（占比 1.1%）因受损、归档错误或字迹不清等原因，无法明确识别其接收城市。</p>
+            <p>约有 193 行数据包含异常的国家标签（如误填为人名或缩写含义不明），因此未被计入国家层面的统计总数中。</p>
+            <p>坐标缺失：尽管我们掌握了主要信件发送枢纽的精确城市级地理位置，但部分乡村地区或次级城市缺乏可靠的地理编码数据。对于无法获取精确坐标的情况，我们将此类信件统一显示在其所属国家的中心点位置。</p>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="lang-copy" data-lang="zh-Hant">
+      <div class="about-kicker">引言</div>
+      <h2>僑批與潮汕跨國網絡</h2>
+      <p class="about-lede">
+        「僑批」（Qiaopi，即「海外華僑匯款信」）指19世紀末至20世紀中期，海外華僑群體與身處中國南方地區（尤其是廣東、福建兩省）的親屬之間往來的手寫信函。這些信件通常附帶匯款，同時也承載著家事近況與囑託，維繫著因移民而分隔兩地的親情紐帶。
+      </p>
+      <p>
+        本地圖透過視覺化展示汕頭大學所收藏的50,064封僑批的元數據，揭示了將海外華僑與故土緊密相連的跨國網絡。透過繪製發信人所在地與收信地點的分佈圖，我們得以追溯那些維繫東南亞乃至更廣闊地區華僑社群生存與發展的資金流向與親緣脈絡。
+      </p>
+      <div class="about-cta">
+        <a class="about-button" href="#map">探索地圖</a>
+      </div>
+
+      <div class="about-accordion">
+        <details>
+          <summary>專案宗旨</summary>
+          <div class="about-content">
+            <h3>致研究人員</h3>
+            <p>本計畫提供數位探索平台，學者可藉此：</p>
+            <ul>
+              <li>依地區及時段追溯移民及匯款的流動模式</li>
+              <li>識別主要的匯款集散中心</li>
+              <li>探究海外華人社區的地理分佈狀況</li>
+              <li>研究中國各縣域與其海外僑民群體之間的聯繫網絡</li>
+            </ul>
+            <h3>致後裔群體</h3>
+            <p>如今，許多人正是當年「僑批」寄件人或收件人的後裔。本圖譜可作為尋親訪祖的輔助工具：</p>
+            <ul>
+              <li>透過寄件者或收件人的姓名進行檢索，以尋找家族信函</li>
+              <li>了解您的先輩曾經生活、工作以及匯款的具體地點</li>
+              <li>將家族歷史資料存入一個共享且易於查閱的數位檔案庫中</li>
+            </ul>
+            <h3>致社會大眾</h3>
+            <p>「僑批」網絡所承載的是一個更為宏大的歷史敘事：</p>
+            <ul>
+              <li>揭示移民遷徙、僑匯往來以及家族網絡如何共同推動並維繫了中國社會的發展</li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>如何使用本地圖</summary>
+          <div class="about-content">
+            <ol>
+              <li>點擊某個國家，即可查看該國境內的所有寄出城市及其接收目的地。</li>
+              <li>選擇某個城市，即可放大地圖並查看來自該地點的具體信件。</li>
+              <li>按姓名（寄件人或收件人）進行搜尋，以查找特定信件並追溯家族網絡。</li>
+            </ol>
+          </div>
+        </details>
+
+        <details>
+          <summary>研究發現</summary>
+          <div class="about-content">
+            <h3>僑批網路的規模</h3>
+            <p>汕頭大學收藏的僑批元數據涵蓋了50,064封信件，其寄出地遍布東南亞及其他地區的數十個城市。</p>
+
+            <h3>信件的寄出地</h3>
+            <p>絕大多數（85.4%）信件源自三個東南亞城市：曼谷、新加坡和吉隆坡。</p>
+            <p>另有一小部分但具有重要意義的信件（4.9%）來自馬來西亞的一些中小城市（麻坡、新山、檳城、古晉）。</p>
+            <p>其餘信件則分別寄自香港（1,164封，佔2.3%）及汕頭本地（1,111封，佔2.2%）。</p>
+
+            <h3>信件的接收地</h3>
+            <p>信件主要匯聚於潮汕地區的五個縣域，這五個縣域的接收量佔了全部接收量的96.5%：潮安，澄海，揭陽，饒平，普寧。</p>
+            <p>其中，光是潮安和澄海兩地就接收了近88%的信件。</p>
+
+            <h3>遷徙廊道：誰寄給了誰</h3>
+            <p>不同的寄出城市呈現截然不同的接收分佈模式：</p>
+            <h3>來自泰國（曼谷）的信件</h3>
+            <ul>
+              <li>澄海接收了52.6%（12,721封）</li>
+              <li>潮安接收了32.3%（7,818封）</li>
+            </ul>
+            <p>來自泰國的信件主要集中在澄海。</p>
+            <h3>來自新加坡的信件</h3>
+            <ul>
+              <li>潮安接收了78.3%（14,527封）</li>
+              <li>澄海接收了14.8%（2,739封）</li>
+            </ul>
+            <p>新加坡的情況則呈現相反的模式，信件主要偏向潮安。</p>
+            <h3>來自馬來西亞的信件</h3>
+            <ul>
+              <li>潮安接收了72.9%（3,226封）</li>
+              <li>澄海接收了17.6%（778封）</li>
+            </ul>
+            <p>馬來西亞與新加坡相似，潮安是主要的接收地。</p>
+            <p>海外移民網絡具有高度的地域特異性。並非所有的移民都遷往了同一個目的地，同樣，也並非所有的寄出城市都以均等的比例對應著相同的接收縣域。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>資料品質與缺失情況</summary>
+          <div class="about-content">
+            <p>經資料清洗後，有 555 封信（佔 1.1%）因受損、歸檔錯誤或字跡不清等原因，無法明確辨識其接收城市。</p>
+            <p>約有 193 行資料包含異常的國家標籤（如誤填為人名或縮寫意義不明），因此未被計入國家層級的統計總數中。</p>
+            <p>座標缺失：儘管我們掌握了主要信件發送樞紐的精確城市級地理位置，但部分鄉村地區或次級城市缺乏可靠的地理編碼資料。對於無法取得精確座標的情況，我們將此類信件統一顯示在其所屬國家的中心點位置。</p>
+          </div>
+        </details>
+      </div>
+    </div>
+
+    <div class="lang-copy" data-lang="en">
+      <div class="about-kicker">Introduction</div>
+      <h2>Qiaopi and the Chaoshan Transnational Network</h2>
+      <p class="about-lede">
+        Qiaopi (侨批, or “overseas Chinese remittance letters”) are handwritten letters sent between overseas Chinese communities and their families in regions of Southern China, notably the Guangdong (广东) and Fujian (福建) provinces from the late 19th through mid-20th century. Letters most often accompanied money, while sharing family news and instructions to those separated by migration.
+      </p>
+      <p>
+        This map visualizes 50,064 Qiaopi letters metadata held by Shantou University (汕头大学), revealing the transnational networks that bound Chinese emigrants to their homeland. Mapping sender locations and receiving destinations, we can trace the flows of capital and kinship that sustained diaspora communities across Southeast Asia and beyond.
+      </p>
+      <div class="about-cta">
+        <a class="about-button" href="#map">Explore Map</a>
+      </div>
+
+      <div class="about-accordion">
+        <details>
+          <summary>Purpose</summary>
+          <div class="about-content">
+            <h3>For Researchers</h3>
+            <p>This project allows digital exploration, where scholars can:</p>
+            <ul>
+              <li>Trace migration and remittance patterns by region and time period</li>
+              <li>Identify major sending hubs</li>
+              <li>Potentially understand the geographic distribution of Chinese communities overseas</li>
+              <li>Study the connectivity between Chinese counties and their diaspora</li>
+            </ul>
+            <h3>For Descendants</h3>
+            <p>Many people today are descendants of qiaopi senders and receivers. This map serves as a finding aid:</p>
+            <ul>
+              <li>Search by sender or recipient name to locate family letters</li>
+              <li>Understand where your ancestors lived, worked, and sent money</li>
+              <li>Preserve family history in a shared, accessible archive</li>
+            </ul>
+            <h3>For the Public</h3>
+            <p>The qiaopi network tells a broader story:</p>
+            <ul>
+              <li>How migration, remittances, and family networks created and sustained development in China</li>
+            </ul>
+          </div>
+        </details>
+
+        <details>
+          <summary>How to Use This Map</summary>
+          <div class="about-content">
+            <ol>
+              <li>Click a country to see all sending cities within it and their receiving destinations.</li>
+              <li>Select a city to zoom in and view individual letters from that location.</li>
+              <li>Search by name (sender or recipient) to find specific letters and trace family networks.</li>
+            </ol>
+          </div>
+        </details>
+
+        <details>
+          <summary>Findings</summary>
+          <div class="about-content">
+            <h3>The Scale of the Network</h3>
+            <p>The Shantou University (汕头大学) Qiaopi metadata collection encompasses 50,064 letters spanning dozens of sending cities across Southeast Asia and beyond.</p>
+
+            <h3>Where Letters Were Sent From</h3>
+            <p>The overwhelming majority (85.4%) of letters originated from three Southeast Asian cities: Bangkok, Singapore, and Kuala Lumpur.</p>
+            <p>A smaller but significant portion (4.9%) came from Malaysia's smaller cities: Muar (麻坡), Johor Bahru (新山), Penang (槟城), and Kuching (古晋).</p>
+            <p>Other letters were sent from Hong Kong (香港) (1,164 letters, 2.3%) and Shantou (汕头) itself (1,111 letters, 2.2%).</p>
+
+            <h3>Where Letters Were Received</h3>
+            <p>Letters converged on five Chaoshan (潮汕) counties, which account for 96.5% of all receipts: Chao'an (潮安), Chenghai (澄海), Jieyang (揭阳), Raoping (饶平), and Puning (普宁).</p>
+            <p>Chao'an (潮安) and Chenghai (澄海) alone account for nearly 88% of all letters.</p>
+
+            <h3>Migration Corridors: Who Sent to Whom</h3>
+            <p>Different sending cities maintained distinct receiving patterns:</p>
+            <h3>From Thailand (泰国), Bangkok (曼谷)</h3>
+            <ul>
+              <li>Chenghai (澄海) received 52.6% (12,721 letters)</li>
+              <li>Chao'an (潮安) received 32.3% (7,818 letters)</li>
+            </ul>
+            <p>Thai letters clustered in Chenghai (澄海).</p>
+            <h3>From Singapore (新加坡)</h3>
+            <ul>
+              <li>Chao'an (潮安) received 78.3% (14,527 letters)</li>
+              <li>Chenghai (澄海) received 14.8% (2,739 letters)</li>
+            </ul>
+            <p>Singapore shows the reverse pattern, with letters skewed toward Chao'an (潮安).</p>
+            <h3>From Malaysia (马来西亚)</h3>
+            <ul>
+              <li>Chao'an (潮安) received 72.9% (3,226 letters)</li>
+              <li>Chenghai (澄海) received 17.6% (778 letters)</li>
+            </ul>
+            <p>Malaysia's pattern resembles Singapore's, with Chao'an (潮安) as the dominant receiver.</p>
+            <p>Diaspora networks were hyper-localized. Not all emigrants went to the same place, and not all sending cities equally supported the same receiving counties.</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>Data Quality & Gaps</summary>
+          <div class="about-content">
+            <p>555 letters (1.1%) lack a clearly identifiable receiving city after data cleaning; they may be damaged, misfiled, or illegible.</p>
+            <p>Approximately 193 rows contain corrupted country labels (personal names or unclear abbreviations) and are excluded from country-level totals.</p>
+            <p>Missing coordinates: While we have precise city-level locations for major sending hubs, some rural or secondary cities lack reliable geocoding. Where exact coordinates are unavailable, we display letters at their country's center point.</p>
+          </div>
+        </details>
+      </div>
+    </div>
+  </div>
+
+  <footer class="about-footer lang-copy" data-lang="zh-Hans">
+    <strong>来源与归属</strong><br>
+    数字化与可视化：本地图由 Angelina Fu 在 Nicolas Tackett 教授的指导下制作，作为加州大学伯克利分校历史学课程 History 199（2026年春季学期期末项目）的一部分。<br>
+    数据来源：汕头大学侨批档案<br>
+    本项目得益于汕头大学在档案保存方面所做的不懈努力。
+  </footer>
+  <footer class="about-footer lang-copy" data-lang="zh-Hant">
+    <strong>來源與歸屬</strong><br>
+    數位化與視覺化：本地圖由 Angelina Fu 在 Nicolas Tackett 教授的指導下製作，作為加州大學柏克萊分校歷史課程 History 199（2026年春季學期期末專案）的一部分。<br>
+    資料來源：汕頭大學僑批檔案<br>
+    本計畫得益於汕頭大學在檔案保存所做的不懈努力。
+  </footer>
+  <footer class="about-footer lang-copy" data-lang="en">
+    <strong>Source & Attribution</strong><br>
+    Digitization & visualization: This map was created by Angelina Fu under the supervision of Professor Nicolas Tackett as part of UC Berkeley History 199 (Final Project, Spring 2026).<br>
+    Data source: Shantou University (汕头大学) Qiaopi Archive<br>
+    This project is made possible by the preservation efforts of Shantou University.
+  </footer>
+</section>
+
+<script src="map_app.js" charset="UTF-8"></script>
+<script>
+  function applyRoute() {
+    const route = (location.hash || '#about').replace('#', '');
+    const page = route === 'map' ? 'map' : 'about';
+    document.querySelectorAll('.page-view').forEach((el) => {
+      el.classList.toggle('active', el.dataset.page === page);
+    });
+    document.querySelectorAll('.nav-link').forEach((el) => {
+      el.classList.toggle('active', el.dataset.route === page);
+    });
+    if (page === 'map') {
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 120);
+    }
+  }
+
+  window.addEventListener('hashchange', applyRoute);
+  window.addEventListener('DOMContentLoaded', applyRoute);
+</script>
+</body>
+</html>
