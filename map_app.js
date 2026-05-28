@@ -325,6 +325,7 @@ const I18N = {
     fieldType: "类别",
     fieldBureau: "批局",
     countryWide: "全国",
+    regionWide: "全地区",
     unknownCity: "不详",
     receivingControlShow: "显示中国收批地",
     receivingControlHide: "隐藏中国收批地",
@@ -412,6 +413,7 @@ const I18N = {
     fieldType: "類別",
     fieldBureau: "批局",
     countryWide: "全國",
+    regionWide: "全地區",
     unknownCity: "不詳",
     receivingControlShow: "顯示中國收批地",
     receivingControlHide: "隱藏中國收批地",
@@ -499,6 +501,7 @@ const I18N = {
     fieldType: "Type",
     fieldBureau: "Bureau",
     countryWide: "Country-wide",
+    regionWide: "Region-wide",
     unknownCity: "Unknown",
     receivingControlShow: "Show receiving cities",
     receivingControlHide: "Hide receiving cities",
@@ -757,8 +760,10 @@ function isCountryWideLabel(label) {
   return label === COUNTRY_WIDE_LABEL;
 }
 
-function displayCityLabel(label) {
-  if (isCountryWideLabel(label)) return t("countryWide");
+function displayCityLabel(label, countryName = "") {
+  if (isCountryWideLabel(label)) {
+    return countryName === "香港" ? t("regionWide") : t("countryWide");
+  }
   if (label === "不详") return t("unknownCity");
   return label;
 }
@@ -1496,7 +1501,7 @@ function renderCountrySidebar(cnName) {
           (city) =>
             `<button class="letter-card city-row" data-city="${encodeURIComponent(city)}" data-mode="${mode}" style="width:100%;text-align:left;border:none;background:transparent;">
               <div class="card-body">
-                <div class="card-amount">${escapeHtml(displayCityLabel(city))}</div>
+                <div class="card-amount">${escapeHtml(displayCityLabel(city, cnName))}</div>
                 <div class="card-meta">${
                   mode === "origin"
                     ? escapeHtml(t("clickSentCity"))
@@ -1908,7 +1913,7 @@ async function selectCity(countryName, cityLabel, mode = citySortMode) {
   const { from, to } = countToFromForCity(cityLabel, cityLetters);
   setSidebarHeader(
     t("cityDetail"),
-    displayCityLabel(cityLabel),
+    displayCityLabel(cityLabel, countryName),
     `${countryName} · ${t("totalLetters", { count: cityLetters.length })}`,
     buildCountrySelectHtml(countryName)
   );
