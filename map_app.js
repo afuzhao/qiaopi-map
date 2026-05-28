@@ -1286,30 +1286,32 @@ function updateGlobalReceivingControlText() {
 
 function setGlobalReceivingView(active) {
   showMapLoading();
-  globalReceivingViewActive = active;
-  updateGlobalReceivingControlState();
-  receivingLetterMarkerLayer.clearLayers();
-  letterArcLayer.clearLayers();
-  activeArcRow = null;
-  originCityHighlightLayer.clearLayers();
-  receivingLocationHighlightLayer.clearLayers();
-  cityMarkerLayer.clearLayers();
+  try {
+    globalReceivingViewActive = active;
+    updateGlobalReceivingControlState();
+    receivingLetterMarkerLayer.clearLayers();
+    letterArcLayer.clearLayers();
+    activeArcRow = null;
+    originCityHighlightLayer.clearLayers();
+    receivingLocationHighlightLayer.clearLayers();
+    cityMarkerLayer.clearLayers();
 
-  if (active) {
-    activeCountryName = null;
-    activeCityKey = null;
-    activeCityLabel = null;
-    if (countryLayer) countryLayer.setStyle(getCountryStyle);
-    drawAllReceivingCityMarkers();
+    if (active) {
+      activeCountryName = null;
+      activeCityKey = null;
+      activeCityLabel = null;
+      if (countryLayer) countryLayer.setStyle(getCountryStyle);
+      drawAllReceivingCityMarkers();
+      renderSidebarIntro();
+      return;
+    }
+
+    clearReceivingMapLayers();
+    map.flyTo([20, 108], 3, { duration: 0.8 });
     renderSidebarIntro();
-    setTimeout(hideMapLoading, 0);
-    return;
+  } finally {
+    hideMapLoading();
   }
-
-  clearReceivingMapLayers();
-  map.flyTo([20, 108], 3, { duration: 0.8 });
-  renderSidebarIntro();
-  setTimeout(hideMapLoading, 0);
 }
 
 function toggleGlobalReceivingView() {
@@ -1351,24 +1353,26 @@ function addGlobalReceivingControl() {
 
 function updateCountryMapView(cnName, mode = citySortMode) {
   showMapLoading();
-  globalReceivingViewActive = false;
-  updateGlobalReceivingControlState();
-  receivingLetterMarkerLayer.clearLayers();
-  letterArcLayer.clearLayers();
-  activeArcRow = null;
-  originCityHighlightLayer.clearLayers();
-  receivingLocationHighlightLayer.clearLayers();
+  try {
+    globalReceivingViewActive = false;
+    updateGlobalReceivingControlState();
+    receivingLetterMarkerLayer.clearLayers();
+    letterArcLayer.clearLayers();
+    activeArcRow = null;
+    originCityHighlightLayer.clearLayers();
+    receivingLocationHighlightLayer.clearLayers();
 
-  if (mode === "receiving") {
-    cityMarkerLayer.clearLayers();
-    drawReceivingCityMarkersForCountry(cnName);
-    setTimeout(hideMapLoading, 0);
-    return;
+    if (mode === "receiving") {
+      cityMarkerLayer.clearLayers();
+      drawReceivingCityMarkersForCountry(cnName);
+      return;
+    }
+
+    clearReceivingMapLayers();
+    flyToCountryOverview(cnName);
+  } finally {
+    hideMapLoading();
   }
-
-  clearReceivingMapLayers();
-  flyToCountryOverview(cnName);
-  setTimeout(hideMapLoading, 0);
 }
 
 function originLatLngForRow(row) {
@@ -1824,42 +1828,39 @@ function renderSearchResults() {
 
 async function selectCity(countryName, cityLabel, mode = citySortMode) {
   showMapLoading();
-  globalReceivingViewActive = false;
-  updateGlobalReceivingControlState();
-  citySortMode = mode === "receiving" ? "receiving" : "origin";
-  const isReceivingMode = citySortMode === "receiving";
-  const isCountryWide = isCountryWideLabel(cityLabel);
-  const isUnknownCity = cityLabel === "不详";
-
-  activeCityKey = cityKeyFromLabel(cityLabel);
-  activeCityLabel = cityLabel;
-  activeCountryName = countryName;
-
-  const timelineEl = document.getElementById("timeline");
-  if (timelineEl && !isUnknownCity && !isCountryWide) {
-    timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p>${escapeHtml(t("loadingCity"))}</p></div>`;
-  }
-
-  let cityLetters = [];
   try {
-    cityLetters = isReceivingMode
-      ? await lettersForReceivingCity(countryName, cityLabel)
-      : await lettersForCity(countryName, cityLabel);
-  } catch (err) {
-    if (timelineEl) {
-      timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p></div>`;
+    globalReceivingViewActive = false;
+    updateGlobalReceivingControlState();
+    citySortMode = mode === "receiving" ? "receiving" : "origin";
+    const isReceivingMode = citySortMode === "receiving";
+    const isCountryWide = isCountryWideLabel(cityLabel);
+    const isUnknownCity = cityLabel === "不详";
+
+    activeCityKey = cityKeyFromLabel(cityLabel);
+    activeCityLabel = cityLabel;
+    activeCountryName = countryName;
+
+    const timelineEl = document.getElementById("timeline");
+    if (timelineEl && !isUnknownCity && !isCountryWide) {
+      timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p>${escapeHtml(t("loadingCity"))}</p></div>`;
     }
-    console.error(err);
-    hideMapLoading();
-    return;
-  }
-  if (!cityLetters.length) {
-    hideMapLoading();
-    return;
-  }
-  activeCitySenderStats = buildSenderStats(cityLetters);
-  activeCitySenderVisible = CITY_SENDER_PAGE_SIZE;
-  if (countryLayer) countryLayer.setStyle(getCountryStyle);
+
+    let cityLetters = [];
+    try {
+      cityLetters = isReceivingMode
+        ? await lettersForReceivingCity(countryName, cityLabel)
+        : await lettersForCity(countryName, cityLabel);
+    } catch (err) {
+      if (timelineEl) {
+        timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p></div>`;
+      }
+      console.error(err);
+      return;
+    }
+    if (!cityLetters.length) return;
+    activeCitySenderStats = buildSenderStats(cityLetters);
+    activeCitySenderVisible = CITY_SENDER_PAGE_SIZE;
+    if (countryLayer) countryLayer.setStyle(getCountryStyle);
 
   if (isUnknownCity || isCountryWide) {
     cityMarkerLayer.clearLayers();
@@ -1968,8 +1969,10 @@ async function selectCity(countryName, cityLabel, mode = citySortMode) {
     detailPanel.classList.remove("open");
     detailPanel.style.display = "none";
   }
-  if (senderSearchQuery.trim()) renderSearchResults();
-  hideMapLoading();
+    if (senderSearchQuery.trim()) renderSearchResults();
+  } finally {
+    hideMapLoading();
+  }
 }
 
 function onEachCountry(feature, layer) {
