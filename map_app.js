@@ -3,6 +3,7 @@ const DATA_INDEX_URL = "data_index.json";
 const DATA_SEARCH_URL = "data_search.json";
 const MAX_MAP_MARKERS = 100;
 const RECEIVING_CITY_LIST_LIMIT = 60;
+const CITY_SENDER_PAGE_SIZE = 10;
 const COUNTRY_BOUNDS_URL = "https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json";
 const COUNTRY_NAMES_TSV_URL = "country-names.tsv";
 const TOPOJSON_CLIENT_URL = "https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js";
@@ -51,6 +52,9 @@ let citySortMode = "origin";
 let globalReceivingViewActive = false;
 let globalReceivingControlBtn = null;
 let markerLegendControl = null;
+let mapLoadingDepth = 0;
+let activeCitySenderStats = [];
+let activeCitySenderVisible = CITY_SENDER_PAGE_SIZE;
 const letterCountByCountry = new Map();
 const citiesByCountry = new Map();
 const receivingCitiesByCountry = new Map();
@@ -262,6 +266,7 @@ const I18N = {
     statPeriod: "时期",
     statSenders: "寄批人",
     loadingArchive: "正在加载侨批档案…",
+    loadingMap: "正在加载地图，请稍候…",
     aboutKicker: "引言",
     aboutTitle: "什么是侨批？",
     aboutDefinition:
@@ -303,6 +308,9 @@ const I18N = {
     clickMarkerDetail: "点击单个标记可在下方查看侨批元数据。",
     couldNotLoadIndex: "无法加载 data_index.json",
     couldNotLoadChunk: "无法加载国家数据分片",
+    topSenders: "寄批人（前{count}）",
+    senderLettersCount: "{name} · {count}封",
+    showMoreSenders: "再显示{step}位寄批人（剩余{remaining}位）",
     senderMatches: "寄批人匹配",
     recipientMatches: "收批人匹配",
     noMatches: "未找到{mode}匹配结果。",
@@ -345,6 +353,7 @@ const I18N = {
     statPeriod: "時期",
     statSenders: "寄批人",
     loadingArchive: "正在載入僑批檔案…",
+    loadingMap: "正在載入地圖，請稍候…",
     aboutKicker: "引言",
     aboutTitle: "什麼是僑批？",
     aboutDefinition:
@@ -386,6 +395,9 @@ const I18N = {
     clickMarkerDetail: "點擊單個標記可在下方查看僑批元資料。",
     couldNotLoadIndex: "無法載入 data_index.json",
     couldNotLoadChunk: "無法載入國家數據分片",
+    topSenders: "寄批人（前{count}）",
+    senderLettersCount: "{name} · {count}封",
+    showMoreSenders: "再顯示{step}位寄批人（剩餘{remaining}位）",
     senderMatches: "寄批人匹配",
     recipientMatches: "收批人匹配",
     noMatches: "未找到{mode}匹配結果。",
@@ -428,6 +440,7 @@ const I18N = {
     statPeriod: "Period",
     statSenders: "Senders",
     loadingArchive: "Loading archive…",
+    loadingMap: "Loading map, please wait…",
     aboutKicker: "Introduction",
     aboutTitle: "What Is Qiaopi?",
     aboutDefinition:
@@ -469,6 +482,9 @@ const I18N = {
     clickMarkerDetail: "Click an individual marker to open letter metadata below.",
     couldNotLoadIndex: "Could not load data_index.json",
     couldNotLoadChunk: "Could not load country data chunk",
+    topSenders: "Top senders ({count})",
+    senderLettersCount: "{name} · {count} letters",
+    showMoreSenders: "Show {step} more senders ({remaining} remaining)",
     senderMatches: "Sender matches",
     recipientMatches: "Recipient matches",
     noMatches: "No {mode} matches.",
@@ -519,6 +535,25 @@ function applyStaticTranslations() {
   });
   const select = document.getElementById("languageSelect");
   if (select) select.value = currentLang;
+  updateMapLoadingText();
+}
+
+function updateMapLoadingText() {
+  const el = document.getElementById("mapLoadingText");
+  if (el) el.textContent = t("loadingMap");
+}
+
+function showMapLoading() {
+  mapLoadingDepth += 1;
+  const overlay = document.getElementById("mapLoadingOverlay");
+  if (overlay) overlay.classList.add("visible");
+}
+
+function hideMapLoading() {
+  mapLoadingDepth = Math.max(0, mapLoadingDepth - 1);
+  if (mapLoadingDepth > 0) return;
+  const overlay = document.getElementById("mapLoadingOverlay");
+  if (overlay) overlay.classList.remove("visible");
 }
 
 function refreshDynamicText() {
@@ -1245,6 +1280,7 @@ function updateGlobalReceivingControlText() {
 }
 
 function setGlobalReceivingView(active) {
+  showMapLoading();
   globalReceivingViewActive = active;
   updateGlobalReceivingControlState();
   receivingLetterMarkerLayer.clearLayers();
@@ -1261,12 +1297,14 @@ function setGlobalReceivingView(active) {
     if (countryLayer) countryLayer.setStyle(getCountryStyle);
     drawAllReceivingCityMarkers();
     renderSidebarIntro();
+    setTimeout(hideMapLoading, 0);
     return;
   }
 
   clearReceivingMapLayers();
   map.flyTo([20, 108], 3, { duration: 0.8 });
   renderSidebarIntro();
+  setTimeout(hideMapLoading, 0);
 }
 
 function toggleGlobalReceivingView() {
@@ -1307,6 +1345,7 @@ function addGlobalReceivingControl() {
 }
 
 function updateCountryMapView(cnName, mode = citySortMode) {
+  showMapLoading();
   globalReceivingViewActive = false;
   updateGlobalReceivingControlState();
   receivingLetterMarkerLayer.clearLayers();
@@ -1318,11 +1357,13 @@ function updateCountryMapView(cnName, mode = citySortMode) {
   if (mode === "receiving") {
     cityMarkerLayer.clearLayers();
     drawReceivingCityMarkersForCountry(cnName);
+    setTimeout(hideMapLoading, 0);
     return;
   }
 
   clearReceivingMapLayers();
   flyToCountryOverview(cnName);
+  setTimeout(hideMapLoading, 0);
 }
 
 function originLatLngForRow(row) {
@@ -1535,6 +1576,8 @@ function wireBackToCities(countryName, mode = citySortMode) {
   backBtn.addEventListener("click", () => {
     activeCityKey = null;
     activeCityLabel = null;
+    activeCitySenderStats = [];
+    activeCitySenderVisible = CITY_SENDER_PAGE_SIZE;
     cityMarkerLayer.clearLayers();
     receivingLetterMarkerLayer.clearLayers();
     citySortMode = mode;
@@ -1546,6 +1589,52 @@ function wireBackToCities(countryName, mode = citySortMode) {
       detailPanel.style.display = "none";
     }
   });
+}
+
+function buildSenderStats(cityLetters) {
+  const counts = new Map();
+  cityLetters.forEach((row) => {
+    const name = String(row["寄批人"] || "").trim() || "—";
+    counts.set(name, (counts.get(name) || 0) + 1);
+  });
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count || ZH_COLLATOR.compare(a.name, b.name));
+}
+
+function renderCitySenderList() {
+  const wrap = document.getElementById("citySenderList");
+  const moreBtn = document.getElementById("citySenderMoreBtn");
+  if (!wrap || !moreBtn) return;
+  const visible = activeCitySenderStats.slice(0, activeCitySenderVisible);
+  wrap.innerHTML = visible
+    .map(
+      (item) => `
+      <div class="letter-card" style="width:100%;text-align:left;border:1px solid #e1d5b2;background:#fbf6ea;cursor:default;">
+        <div class="card-body">
+          <div class="card-amount">${escapeHtml(item.name)}</div>
+          <div class="card-meta">${escapeHtml(t("senderLettersCount", { name: item.name, count: item.count }))}</div>
+        </div>
+      </div>`
+    )
+    .join("");
+
+  const remaining = Math.max(0, activeCitySenderStats.length - activeCitySenderVisible);
+  if (remaining <= 0) {
+    moreBtn.style.display = "none";
+    return;
+  }
+  const step = Math.min(CITY_SENDER_PAGE_SIZE, remaining);
+  moreBtn.style.display = "block";
+  moreBtn.innerHTML = `
+    <div class="card-body">
+      <div class="card-amount">+ ${step}</div>
+      <div class="card-meta">${escapeHtml(t("showMoreSenders", { step, remaining }))}</div>
+    </div>`;
+  moreBtn.onclick = () => {
+    activeCitySenderVisible += CITY_SENDER_PAGE_SIZE;
+    renderCitySenderList();
+  };
 }
 
 function markerOffsetMeters(index) {
@@ -1729,6 +1818,7 @@ function renderSearchResults() {
 }
 
 async function selectCity(countryName, cityLabel, mode = citySortMode) {
+  showMapLoading();
   globalReceivingViewActive = false;
   updateGlobalReceivingControlState();
   citySortMode = mode === "receiving" ? "receiving" : "origin";
@@ -1755,9 +1845,15 @@ async function selectCity(countryName, cityLabel, mode = citySortMode) {
       timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p></div>`;
     }
     console.error(err);
+    hideMapLoading();
     return;
   }
-  if (!cityLetters.length) return;
+  if (!cityLetters.length) {
+    hideMapLoading();
+    return;
+  }
+  activeCitySenderStats = buildSenderStats(cityLetters);
+  activeCitySenderVisible = CITY_SENDER_PAGE_SIZE;
   if (countryLayer) countryLayer.setStyle(getCountryStyle);
 
   if (isUnknownCity || isCountryWide) {
@@ -1854,8 +1950,12 @@ async function selectCity(countryName, cityLabel, mode = citySortMode) {
             : escapeHtml(t("clickMarkerDetail"))
         }</div>
       </div>
-    </div>`;
+    </div>
+    <div class="year-label">${escapeHtml(t("topSenders", { count: Math.min(activeCitySenderVisible, activeCitySenderStats.length) }))}</div>
+    <div id="citySenderList"></div>
+    <button id="citySenderMoreBtn" class="letter-card" style="width:100%;text-align:left;border:1px solid #d9c99a;background:#f7f0df;cursor:pointer;"></button>`;
   wireBackToCities(countryName, citySortMode);
+  renderCitySenderList();
 
   const detailPanel = document.getElementById("detailPanel");
   if (detailPanel) {
@@ -1864,6 +1964,7 @@ async function selectCity(countryName, cityLabel, mode = citySortMode) {
     detailPanel.style.display = "none";
   }
   if (senderSearchQuery.trim()) renderSearchResults();
+  hideMapLoading();
 }
 
 function onEachCountry(feature, layer) {
@@ -1949,6 +2050,7 @@ function loadSearchIndex() {
     .catch((err) => console.warn("Search index load failed", err));
 }
 
+showMapLoading();
 fetch(DATA_INDEX_URL)
   .then((r) => {
     if (!r.ok) throw new Error(`${t("couldNotLoadIndex")} (HTTP ${r.status}).`);
@@ -1961,8 +2063,10 @@ fetch(DATA_INDEX_URL)
     applyIndexStats();
     await startApp();
     loadSearchIndex();
+    hideMapLoading();
   })
   .catch((err) => {
     document.getElementById("timeline").innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p><p style="margin-top:14px;font-size:0.78rem;line-height:1.6;">${escapeHtml(t("loadingErrorHelp"))}</p></div>`;
     console.error(err);
+    hideMapLoading();
   });
