@@ -71,7 +71,47 @@ header {
 .main.page-view { display:none; }
 .main.page-view.active { display:flex; }
 #map { flex:1; }
+.map-wrap { position:relative; flex:1; min-width:0; }
 .leaflet-container { background:#b8d0e8 !important; }
+.map-loading-overlay {
+  position:absolute;
+  inset:0;
+  z-index:750;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  background:rgba(26,18,9,0.38);
+  backdrop-filter: blur(1px);
+}
+.map-loading-overlay.visible { display:flex; }
+.map-loading-card {
+  min-width:210px;
+  max-width:280px;
+  background:rgba(26,18,9,0.88);
+  border:1px solid rgba(201,168,76,0.58);
+  border-radius:3px;
+  padding:14px 16px;
+  color:#f3e4c1;
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.map-loading-spinner {
+  width:16px;
+  height:16px;
+  border-radius:50%;
+  border:2px solid rgba(201,168,76,0.35);
+  border-top-color:#d8be7d;
+  animation:mapSpin 0.9s linear infinite;
+  flex-shrink:0;
+}
+.map-loading-text {
+  font-family:'Noto Serif SC',serif;
+  font-size:0.75rem;
+  letter-spacing:0.07em;
+  line-height:1.35;
+}
+@keyframes mapSpin { to { transform: rotate(360deg); } }
 
 /* SIDEBAR */
 .sidebar { width:var(--sidebar-w); background:var(--paper); display:flex; flex-direction:column; overflow:hidden; border-left:1px solid #c9b98a; flex-shrink:0; }
@@ -232,7 +272,15 @@ html[lang="en"] .lang-copy[data-lang="en"] { display:block; }
 
 <div class="main page-view" id="mapPage" data-page="map">
   <a class="map-back-link" href="#about" data-i18n="backAbout">返回关于</a>
-  <div id="map"></div>
+  <div class="map-wrap">
+    <div id="map"></div>
+    <div id="mapLoadingOverlay" class="map-loading-overlay">
+      <div class="map-loading-card">
+        <span class="map-loading-spinner" aria-hidden="true"></span>
+        <span id="mapLoadingText" class="map-loading-text">正在加载地图…</span>
+      </div>
+    </div>
+  </div>
   <div class="sidebar">
     <div class="sidebar-header" id="sbHead">
       <div class="corridor-tag" data-i18n="archiveTag">侨批档案</div>
