@@ -1,5 +1,8 @@
 // Country choropleth map for qiaopi data.
-const DATA_URL = "data.json";
+const DATA_INDEX_URL = "data_index.json";
+const DATA_SEARCH_URL = "data_search.json";
+const MAX_MAP_MARKERS = 100;
+const RECEIVING_CITY_LIST_LIMIT = 60;
 const COUNTRY_BOUNDS_URL = "https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json";
 const COUNTRY_NAMES_TSV_URL = "country-names.tsv";
 const TOPOJSON_CLIENT_URL = "https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js";
@@ -21,7 +24,15 @@ const COUNTRY_ALIAS = {
 const COUNTRY_COLOR_BASE = "#8b6914";
 const COUNTRY_COLOR_ACTIVE = "#b5341c";
 
-let RAW = [];
+let INDEX = null;
+let totalLetterCount = 0;
+const chunkCache = new Map();
+const originMetaByCountry = new Map();
+const receivingMetaByCountry = new Map();
+const globalReceivingMetaByLabel = new Map();
+const chunkOriginIndexCache = new Map();
+const chunkReceivingIndexCache = new Map();
+const expandedReceivingCountries = new Set();
 let countryLayer = null;
 let activeCountryName = null;
 let activeCityKey = null;
@@ -286,7 +297,12 @@ const I18N = {
     noPreciseCity: "缺少精确城市坐标，地图仅高亮国家。",
     clickSearchForRoute: "可从搜索结果点击具体侨批以查看路线细节。",
     markersOnMap: "地图标记数量：{count}",
+    markersOnMapCapped: "地图显示 {shown} 个散点（共 {count} 封，其余以汇总点表示）",
+    mapHubOnly: "地图以汇总点表示本城市全部 {count} 封侨批",
+    loadingCity: "正在加载该城市数据…",
     clickMarkerDetail: "点击单个标记可在下方查看侨批元数据。",
+    couldNotLoadIndex: "无法加载 data_index.json",
+    couldNotLoadChunk: "无法加载国家数据分片",
     senderMatches: "寄批人匹配",
     recipientMatches: "收批人匹配",
     noMatches: "未找到{mode}匹配结果。",
@@ -364,7 +380,12 @@ const I18N = {
     noPreciseCity: "缺少精確城市座標，地圖僅高亮國家。",
     clickSearchForRoute: "可從搜尋結果點擊具體僑批以查看路線細節。",
     markersOnMap: "地圖標記數量：{count}",
+    markersOnMapCapped: "地圖顯示 {shown} 個散點（共 {count} 封，其餘以匯總點表示）",
+    mapHubOnly: "地圖以匯總點表示本城市全部 {count} 封僑批",
+    loadingCity: "正在載入該城市數據…",
     clickMarkerDetail: "點擊單個標記可在下方查看僑批元資料。",
+    couldNotLoadIndex: "無法載入 data_index.json",
+    couldNotLoadChunk: "無法載入國家數據分片",
     senderMatches: "寄批人匹配",
     recipientMatches: "收批人匹配",
     noMatches: "未找到{mode}匹配結果。",
@@ -442,7 +463,12 @@ const I18N = {
     noPreciseCity: "No precise city coordinates. Country is highlighted on map.",
     clickSearchForRoute: "Click a specific letter from search to inspect route details.",
     markersOnMap: "Markers on map: {count}",
+    markersOnMapCapped: "Map shows {shown} sample markers ({count} letters total; hub summarizes the rest)",
+    mapHubOnly: "Map shows one hub for all {count} letters in this city",
+    loadingCity: "Loading city data…",
     clickMarkerDetail: "Click an individual marker to open letter metadata below.",
+    couldNotLoadIndex: "Could not load data_index.json",
+    couldNotLoadChunk: "Could not load country data chunk",
     senderMatches: "Sender matches",
     recipientMatches: "Recipient matches",
     noMatches: "No {mode} matches.",
@@ -517,7 +543,7 @@ function setLanguage(lang) {
   currentLang = lang;
   localStorage.setItem("qiaopiLang", lang);
   applyStaticTranslations();
-  if (RAW.length) refreshDynamicText();
+  if (INDEX) refreshDynamicText();
 }
 
 function setupLanguageSelector() {
@@ -947,44 +973,105 @@ function drawCountryFallbackHighlights() {
   });
 }
 
-function buildCountryStats() {
+function applyIndexStats() {
+  if (!INDEX) return;
   letterCountByCountry.clear();
   citiesByCountry.clear();
   receivingCitiesByCountry.clear();
   receivingCityCountsByCountry.clear();
   allReceivingCityCounts.clear();
-  let hasCountryWide = false;
+  originMetaByCountry.clear();
+  receivingMetaByCountry.clear();
+  globalReceivingMetaByLabel.clear();
+  expandedReceivingCountries.clear();
 
-  RAW.forEach((row) => {
+  Object.entries(INDEX.letterCountByCountry || {}).forEach(([country, count]) => {
+    if (COUNTRY_ALIAS[country] || country === "其他") letterCountByCountry.set(country, count);
+  });
+
+  Object.entries(INDEX.originCitiesByCountry || {}).forEach(([country, cities]) => {
+    if (!COUNTRY_ALIAS[country] && country !== "其他") return;
+    citiesByCountry.set(
+      country,
+      new Set((cities || []).map((c) => c.label))
+    );
+    originMetaByCountry.set(
+      country,
+      new Map((cities || []).map((c) => [c.label, c]))
+    );
+  });
+
+  Object.entries(INDEX.receivingCitiesByCountry || {}).forEach(([country, cities]) => {
+    if (!COUNTRY_ALIAS[country] && country !== "其他") return;
+    const labelSet = new Set();
+    const countMap = new Map();
+    (cities || []).forEach((c) => {
+      labelSet.add(c.label);
+      countMap.set(c.label, c.count);
+    });
+    receivingCitiesByCountry.set(country, labelSet);
+    receivingCityCountsByCountry.set(country, countMap);
+    receivingMetaByCountry.set(
+      country,
+      new Map((cities || []).map((c) => [c.label, c]))
+    );
+  });
+
+  (INDEX.allReceivingCities || []).forEach((c) => {
+    allReceivingCityCounts.set(c.label, c.count);
+    globalReceivingMetaByLabel.set(c.label, c);
+  });
+}
+
+function getOriginCityMeta(countryName, cityLabel) {
+  return originMetaByCountry.get(countryName)?.get(cityLabel) || null;
+}
+
+function getReceivingCityMeta(countryName, cityLabel) {
+  return receivingMetaByCountry.get(countryName)?.get(cityLabel) || null;
+}
+
+function getGlobalReceivingMeta(label) {
+  return globalReceivingMetaByLabel.get(label) || null;
+}
+
+function buildChunkIndexes(countryName, letters) {
+  const originMap = new Map();
+  const receivingMap = new Map();
+  const countryWide = [];
+
+  letters.forEach((row) => {
     const loc = resolveLocationForRow(row);
-    if (!COUNTRY_ALIAS[loc.country]) return;
-
-    letterCountByCountry.set(loc.country, (letterCountByCountry.get(loc.country) || 0) + 1);
-    if (!citiesByCountry.has(loc.country)) citiesByCountry.set(loc.country, new Set());
-
+    if (loc.country !== countryName) return;
     if (loc.hasCity && loc.city) {
-      citiesByCountry.get(loc.country).add(loc.city);
+      if (!originMap.has(loc.city)) originMap.set(loc.city, []);
+      originMap.get(loc.city).push(row);
     } else {
-      hasCountryWide = true;
+      countryWide.push(row);
     }
 
     const recv = receivingLabelFromRow(row);
     if (recv) {
-      if (!receivingCitiesByCountry.has(loc.country)) receivingCitiesByCountry.set(loc.country, new Set());
-      receivingCitiesByCountry.get(loc.country).add(recv);
-      if (!receivingCityCountsByCountry.has(loc.country)) receivingCityCountsByCountry.set(loc.country, new Map());
-      const countryRecvCounts = receivingCityCountsByCountry.get(loc.country);
-      countryRecvCounts.set(recv, (countryRecvCounts.get(recv) || 0) + 1);
-      allReceivingCityCounts.set(recv, (allReceivingCityCounts.get(recv) || 0) + 1);
+      if (!receivingMap.has(recv)) receivingMap.set(recv, []);
+      receivingMap.get(recv).push(row);
     }
   });
 
-  if (hasCountryWide) {
-    letterCountByCountry.forEach((_, cn) => {
-      if (!citiesByCountry.has(cn)) citiesByCountry.set(cn, new Set());
-      citiesByCountry.get(cn).add(COUNTRY_WIDE_LABEL);
-    });
-  }
+  if (countryWide.length) originMap.set(COUNTRY_WIDE_LABEL, countryWide);
+  chunkOriginIndexCache.set(countryName, originMap);
+  chunkReceivingIndexCache.set(countryName, receivingMap);
+}
+
+async function loadChunk(countryName) {
+  if (chunkCache.has(countryName)) return chunkCache.get(countryName);
+  const url = INDEX?.chunks?.[countryName] || INDEX?.chunks?.["其他"] || "data/chunks/other.json";
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error(`${t("couldNotLoadChunk")} (HTTP ${resp.status})`);
+  const data = await resp.json();
+  const letters = Array.isArray(data) ? data : data.letters || [];
+  chunkCache.set(countryName, letters);
+  buildChunkIndexes(countryName, letters);
+  return letters;
 }
 
 function cityLabelFromRow(row, fallbackCountry = "") {
@@ -1030,25 +1117,18 @@ function cityTokensFromLabel(label) {
   return [(label || "").toLowerCase().trim()].filter(Boolean);
 }
 
-function lettersForCity(countryName, cityLabel) {
-  if (isCountryWideLabel(cityLabel)) {
-    return RAW.filter((row) => {
-      const loc = resolveLocationForRow(row);
-      return loc.country === countryName && !loc.hasCity;
-    });
-  }
-  return RAW.filter((row) => {
-    const loc = resolveLocationForRow(row);
-    return loc.country === countryName && loc.hasCity && loc.city === cityLabel;
-  });
+async function lettersForCity(countryName, cityLabel) {
+  await loadChunk(countryName);
+  const indexed = chunkOriginIndexCache.get(countryName);
+  if (!indexed) return [];
+  return indexed.get(cityLabel) || [];
 }
 
-function lettersForReceivingCity(countryName, recvLabel) {
-  return RAW.filter((row) => {
-    const loc = resolveLocationForRow(row);
-    if (loc.country !== countryName) return false;
-    return receivingLabelFromRow(row) === recvLabel;
-  });
+async function lettersForReceivingCity(countryName, recvLabel) {
+  await loadChunk(countryName);
+  const indexed = chunkReceivingIndexCache.get(countryName);
+  if (!indexed) return [];
+  return indexed.get(recvLabel) || [];
 }
 
 function cityCenterFromLetters(letters) {
@@ -1070,11 +1150,8 @@ function receivingCenterFromLetters(letters) {
 }
 
 function receivingCenterForLabel(recvLabel) {
-  for (const row of RAW) {
-    if (receivingLabelFromRow(row) !== recvLabel) continue;
-    const ll = receivingLatLngForRow(row);
-    if (ll) return ll;
-  }
+  const meta = getGlobalReceivingMeta(recvLabel);
+  if (meta && Number.isFinite(meta.lat) && Number.isFinite(meta.lng)) return [meta.lat, meta.lng];
   return null;
 }
 
@@ -1117,16 +1194,18 @@ function clearReceivingMapLayers() {
 
 function drawReceivingCityMarkersForCountry(countryName) {
   receivingCityMarkerLayer.clearLayers();
-  const labels = sortCityLabelsForCountry(Array.from(receivingCitiesByCountry.get(countryName) || []), "中国大陆");
-  const countsMap = receivingCityCountsByCountry.get(countryName);
+  const cities = INDEX?.receivingCitiesByCountry?.[countryName] || [];
   const latLngs = [];
+  const cityMetaMap = receivingMetaByCountry.get(countryName) || new Map();
 
-  labels.forEach((label) => {
-    const letters = lettersForReceivingCity(countryName, label);
-    const center = receivingCenterFromLetters(letters);
-    if (!center) return;
-    const count = countsMap?.get(label) ?? letters.length;
-    const marker = createReceivingHubMarker(center, label, count, () => selectCity(countryName, label, "receiving"));
+  sortCityLabelsForCountry(
+    cities.map((c) => c.label),
+    "中国大陆"
+  ).forEach((label) => {
+    const meta = cityMetaMap.get(label);
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return;
+    const center = [meta.lat, meta.lng];
+    const marker = createReceivingHubMarker(center, label, meta.count, () => selectCity(countryName, label, "receiving"));
     marker.addTo(receivingCityMarkerLayer);
     latLngs.push(center);
   });
@@ -1136,14 +1215,16 @@ function drawReceivingCityMarkersForCountry(countryName) {
 
 function drawAllReceivingCityMarkers() {
   receivingCityMarkerLayer.clearLayers();
-  const labels = sortCityLabelsForCountry(Array.from(allReceivingCityCounts.keys()), "中国大陆");
   const latLngs = [];
 
-  labels.forEach((label) => {
-    const center = receivingCenterForLabel(label);
-    if (!center) return;
-    const count = allReceivingCityCounts.get(label) || 0;
-    const marker = createReceivingHubMarker(center, label, count);
+  sortCityLabelsForCountry(
+    (INDEX?.allReceivingCities || []).map((c) => c.label),
+    "中国大陆"
+  ).forEach((label) => {
+    const meta = getGlobalReceivingMeta(label);
+    if (!meta || !Number.isFinite(meta.lat) || !Number.isFinite(meta.lng)) return;
+    const center = [meta.lat, meta.lng];
+    const marker = createReceivingHubMarker(center, label, meta.count);
     marker.addTo(receivingCityMarkerLayer);
     latLngs.push(center);
   });
@@ -1314,13 +1395,10 @@ function drawArcForRow(row) {
   }).addTo(letterArcLayer);
 }
 
-function countToFromForCity(cityLabel, cityRows) {
+function countToFromForCity(cityLabel, cityRows, countryName = activeCountryName) {
   const from = cityRows.length;
-  const tokens = cityTokensFromLabel(cityLabel);
-  const to = RAW.filter((row) => {
-    const recv = (receivingLabelFromRow(row) || row["收批地"] || "").toLowerCase();
-    return recv && tokens.some((t) => recv.includes(t));
-  }).length;
+  const meta = countryName ? getOriginCityMeta(countryName, cityLabel) : null;
+  const to = meta?.toCount ?? 0;
   return { from, to };
 }
 
@@ -1353,7 +1431,7 @@ function renderSidebarIntro() {
     t("clickCountryHint"),
     buildCountrySelectHtml("")
   );
-  document.getElementById("timeline").innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p>${escapeHtml(t("loadedLetters", { count: RAW.length }))}</p></div>`;
+  document.getElementById("timeline").innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p>${escapeHtml(t("loadedLetters", { count: totalLetterCount }))}</p></div>`;
   const detailPanel = document.getElementById("detailPanel");
   if (detailPanel) {
     detailPanel.innerHTML = "";
@@ -1368,7 +1446,9 @@ function renderCountrySidebar(cnName) {
   const originCities = sortCityLabelsForCountry(Array.from(citiesByCountry.get(cnName) || []), cnName);
   const receivingCities = sortCityLabelsForCountry(Array.from(receivingCitiesByCountry.get(cnName) || []), "中国大陆");
   const mode = citySortMode === "receiving" ? "receiving" : "origin";
-  const cityList = mode === "origin" ? originCities : receivingCities;
+  const fullCityList = mode === "origin" ? originCities : receivingCities;
+  const collapsedReceiving = mode === "receiving" && !expandedReceivingCountries.has(cnName);
+  const cityList = collapsedReceiving ? fullCityList.slice(0, RECEIVING_CITY_LIST_LIMIT) : fullCityList;
   const cityItems = cityList.length
     ? cityList
         .map(
@@ -1386,6 +1466,15 @@ function renderCountrySidebar(cnName) {
         )
         .join("")
     : `<div style="padding:20px;color:#9a7840;font-style:italic;font-size:0.82rem;text-align:center;">${escapeHtml(t("noCityInfo"))}</div>`;
+  const showMoreBtn =
+    mode === "receiving" && collapsedReceiving && fullCityList.length > RECEIVING_CITY_LIST_LIMIT
+      ? `<button id="showMoreReceivingCities" class="letter-card" style="width:100%;text-align:left;border:1px solid #d9c99a;background:#f7f0df;cursor:pointer;">
+          <div class="card-body">
+            <div class="card-amount">+ ${fullCityList.length - cityList.length}</div>
+            <div class="card-meta">${escapeHtml(t("receivingCities"))}</div>
+          </div>
+        </button>`
+      : "";
 
   setSidebarHeader(
     t("countryDetail"),
@@ -1403,7 +1492,8 @@ function renderCountrySidebar(cnName) {
         mode === "receiving" ? "#f1e4c6" : "#fff8ec"
       };cursor:pointer;font-family:'Noto Serif SC',serif;font-size:0.72rem;color:#4f3a1f;">${escapeHtml(t("receivingCities"))}</button>
     </div>
-    <div class="year-label">${escapeHtml(mode === "origin" ? t("sentFromCities") : t("receivingCities"))} · ${cityList.length}</div>
+    <div class="year-label">${escapeHtml(mode === "origin" ? t("sentFromCities") : t("receivingCities"))} · ${fullCityList.length}</div>
+    ${showMoreBtn}
     ${cityItems}`;
 
   const modeOriginBtn = document.getElementById("cityModeOrigin");
@@ -1417,6 +1507,13 @@ function renderCountrySidebar(cnName) {
   if (modeRecvBtn) {
     modeRecvBtn.addEventListener("click", () => {
       citySortMode = "receiving";
+      renderCountrySidebar(cnName);
+    });
+  }
+  const showMore = document.getElementById("showMoreReceivingCities");
+  if (showMore) {
+    showMore.addEventListener("click", () => {
+      expandedReceivingCountries.add(cnName);
       renderCountrySidebar(cnName);
     });
   }
@@ -1468,19 +1565,34 @@ function renderLetterMarkers(cityLetters, center, countryName = "", targetLayer 
   targetLayer.clearLayers();
   const strokeColor = COUNTRY_ARC_COLOR[countryName] || "#7b2d8b";
   const fillColor = COUNTRY_FILL_COLOR[countryName] || "#c9872a";
-  cityLetters.forEach((row, idx) => {
-    const [dx, dy] = markerOffsetMeters(idx);
-    const [lat, lng] = offsetLatLng(center[0], center[1], dx, dy);
-    const marker = L.circleMarker([lat, lng], {
-      radius: 5,
-      color: strokeColor,
-      weight: 1.2,
-      fillColor,
-      fillOpacity: 0.9,
-    });
-    marker.on("click", () => showLetterDetail(row));
-    marker.addTo(targetLayer);
+  const total = cityLetters.length;
+  const hubRadius = Math.min(18, Math.max(10, 6 + Math.sqrt(total) * 0.35));
+
+  const hub = L.circleMarker(center, {
+    radius: hubRadius,
+    color: strokeColor,
+    weight: 2.4,
+    fillColor,
+    fillOpacity: 0.72,
   });
+  hub.bindTooltip(`${Number(total).toLocaleString()}`, { direction: "top", offset: [0, -6], opacity: 0.92 });
+  hub.addTo(targetLayer);
+
+  if (total <= MAX_MAP_MARKERS) {
+    cityLetters.forEach((row, idx) => {
+      const [dx, dy] = markerOffsetMeters(idx);
+      const [lat, lng] = offsetLatLng(center[0], center[1], dx, dy);
+      const marker = L.circleMarker([lat, lng], {
+        radius: 5,
+        color: strokeColor,
+        weight: 1.2,
+        fillColor,
+        fillOpacity: 0.9,
+      });
+      marker.on("click", () => showLetterDetail(row));
+      marker.addTo(targetLayer);
+    });
+  }
 }
 
 function showLetterDetail(row) {
@@ -1562,28 +1674,28 @@ function renderSearchResults() {
 
   const qLower = q.toLowerCase();
   const results = [];
-  RAW.forEach((row, idx) => {
-    const target = searchMode === "sender" ? String(row["寄批人"] || "") : String(row["收批人"] || "");
+  (INDEX?.search || []).forEach((entry) => {
+    const target = searchMode === "sender" ? String(entry.sender || "") : String(entry.recipient || "");
     if (!target) return;
-    if (target.includes(q) || target.toLowerCase().includes(qLower)) results.push({ row, idx });
+    if (target.includes(q) || target.toLowerCase().includes(qLower)) results.push(entry);
   });
 
   const resultHtml = results.length
     ? results
         .slice(0, 400)
-        .map(({ row, idx }) => {
-          const sender = row["寄批人"] || "—";
-          const recipient = row["收批人"] || "—";
-          const city = cityLabelFromRow(row, getEffectiveCountry(row) || "—");
-          const recv = receivingLabelFromRow(row) || row["收批地"] || "—";
-          const date = row["寄批时间"] || t("dateUnknown");
-          const eid = row["EID"] || idx;
+        .map((entry) => {
+          const sender = entry.sender || "—";
+          const recipient = entry.recipient || "—";
+          const city = entry.city || "—";
+          const recv = entry.recv || "—";
+          const date = entry.date || t("dateUnknown");
+          const eid = entry.eid || entry.idx;
           const title = searchMode === "sender" ? sender : recipient;
           const subline =
             searchMode === "sender"
               ? `${city} · ${date} · EID ${eid}`
               : `${recv} · ${date} · EID ${eid}`;
-          return `<button class="letter-card sender-result-row" data-idx="${idx}" style="width:100%;text-align:left;border:none;background:transparent;">
+          return `<button class="letter-card sender-result-row" data-country="${escapeHtml(entry.country)}" data-idx="${entry.idx}" style="width:100%;text-align:left;border:none;background:transparent;">
             <div class="card-body">
               <div class="card-amount">${escapeHtml(title)}</div>
               <div class="card-meta">${escapeHtml(subline)}</div>
@@ -1602,30 +1714,50 @@ function renderSearchResults() {
   document.querySelectorAll(".sender-result-row").forEach((btn) => {
     btn.addEventListener("click", () => {
       const idx = Number(btn.dataset.idx);
-      if (!Number.isFinite(idx)) return;
-      const row = RAW[idx];
-      if (!row) return;
-      if (searchMode === "sender") highlightOriginCity(row);
-      else highlightReceivingLocation(row);
+      const country = btn.dataset.country || "";
+      if (!Number.isFinite(idx) || !country) return;
+      loadChunk(country)
+        .then((chunk) => {
+          const row = chunk[idx];
+          if (!row) return;
+          if (searchMode === "sender") highlightOriginCity(row);
+          else highlightReceivingLocation(row);
+        })
+        .catch((err) => console.error(err));
     });
   });
 }
 
-function selectCity(countryName, cityLabel, mode = citySortMode) {
+async function selectCity(countryName, cityLabel, mode = citySortMode) {
   globalReceivingViewActive = false;
   updateGlobalReceivingControlState();
   citySortMode = mode === "receiving" ? "receiving" : "origin";
   const isReceivingMode = citySortMode === "receiving";
   const isCountryWide = isCountryWideLabel(cityLabel);
-  const cityLetters = isReceivingMode
-    ? lettersForReceivingCity(countryName, cityLabel)
-    : lettersForCity(countryName, cityLabel);
-  if (!cityLetters.length) return;
-
   const isUnknownCity = cityLabel === "不详";
+
   activeCityKey = cityKeyFromLabel(cityLabel);
   activeCityLabel = cityLabel;
   activeCountryName = countryName;
+
+  const timelineEl = document.getElementById("timeline");
+  if (timelineEl && !isUnknownCity && !isCountryWide) {
+    timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p>${escapeHtml(t("loadingCity"))}</p></div>`;
+  }
+
+  let cityLetters = [];
+  try {
+    cityLetters = isReceivingMode
+      ? await lettersForReceivingCity(countryName, cityLabel)
+      : await lettersForCity(countryName, cityLabel);
+  } catch (err) {
+    if (timelineEl) {
+      timelineEl.innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p></div>`;
+    }
+    console.error(err);
+    return;
+  }
+  if (!cityLetters.length) return;
   if (countryLayer) countryLayer.setStyle(getCountryStyle);
 
   if (isUnknownCity || isCountryWide) {
@@ -1643,7 +1775,14 @@ function selectCity(countryName, cityLabel, mode = citySortMode) {
       if (centroid) map.flyTo(centroid, 5, { duration: 0.8 });
     }
   } else {
-    const center = isReceivingMode ? receivingCenterFromLetters(cityLetters) : cityCenterFromLetters(cityLetters);
+    const meta = isReceivingMode
+      ? getReceivingCityMeta(countryName, cityLabel)
+      : getOriginCityMeta(countryName, cityLabel);
+    const center = meta && Number.isFinite(meta.lat) && Number.isFinite(meta.lng)
+      ? [meta.lat, meta.lng]
+      : isReceivingMode
+        ? receivingCenterFromLetters(cityLetters)
+        : cityCenterFromLetters(cityLetters);
     if (center) {
       map.flyTo(center, isReceivingMode ? 10 : 9, { duration: 0.8 });
       if (isReceivingMode) {
@@ -1705,7 +1844,9 @@ function selectCity(countryName, cityLabel, mode = citySortMode) {
         <div class="card-meta">${
           isUnknownCity || isCountryWide
             ? escapeHtml(t("noPreciseCity"))
-            : escapeHtml(t("markersOnMap", { count: cityLetters.length }))
+            : cityLetters.length > MAX_MAP_MARKERS
+              ? escapeHtml(t("mapHubOnly", { count: cityLetters.length }))
+              : escapeHtml(t("markersOnMap", { count: cityLetters.length }))
         }</div>
         <div class="card-meta">${
           isUnknownCity || isCountryWide
@@ -1788,7 +1929,6 @@ function selectLetter() {}
 
 async function startApp() {
   hideUnusedSidebarUI();
-  buildCountryStats();
   renderSidebarIntro();
   addMarkerLegend();
   addGlobalReceivingControl();
@@ -1797,16 +1937,30 @@ async function startApp() {
 
 setupLanguageSelector();
 
-fetch(DATA_URL)
+function loadSearchIndex() {
+  return fetch(DATA_SEARCH_URL)
+    .then((r) => {
+      if (!r.ok) return null;
+      return r.json();
+    })
+    .then((data) => {
+      if (data && INDEX) INDEX.search = data.search || [];
+    })
+    .catch((err) => console.warn("Search index load failed", err));
+}
+
+fetch(DATA_INDEX_URL)
   .then((r) => {
-    if (!r.ok) throw new Error(`${t("couldNotLoadData")} (HTTP ${r.status}).`);
+    if (!r.ok) throw new Error(`${t("couldNotLoadIndex")} (HTTP ${r.status}).`);
     return r.json();
   })
-  .then(async (data) => {
-    if (Array.isArray(data)) RAW = data;
-    else if (data && Array.isArray(data.letters)) RAW = data.letters;
-    else throw new Error(t("badDataShape"));
+  .then(async (index) => {
+    INDEX = index;
+    INDEX.search = [];
+    totalLetterCount = index.totalCount || 0;
+    applyIndexStats();
     await startApp();
+    loadSearchIndex();
   })
   .catch((err) => {
     document.getElementById("timeline").innerHTML = `<div class="intro"><div class="intro-icon">✦</div><p style="color:#8b4513">${escapeHtml(err.message)}</p><p style="margin-top:14px;font-size:0.78rem;line-height:1.6;">${escapeHtml(t("loadingErrorHelp"))}</p></div>`;
