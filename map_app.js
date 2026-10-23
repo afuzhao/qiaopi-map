@@ -7,6 +7,7 @@ const CITY_SENDER_PAGE_SIZE = 10;
 const COUNTRY_BOUNDS_URL = "https://cdn.jsdelivr.net/npm/world-atlas/countries-110m.json";
 const COUNTRY_NAMES_TSV_URL = "country-names.tsv";
 const TOPOJSON_CLIENT_URL = "https://cdn.jsdelivr.net/npm/topojson-client@3/dist/topojson-client.min.js";
+const BASEMAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 
 const COUNTRY_ALIAS = {
   中国大陆: "china",
@@ -70,8 +71,8 @@ const CHAOSHAN_BOUNDS = [
 
 const map = L.map("map", { center: [20, 108], zoom: 3, zoomControl: true, attributionControl: false });
 
-L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", { maxZoom: 19 }).addTo(map);
-L.control.attribution({ prefix: false }).addAttribution("© OpenStreetMap · Carto · world-atlas").addTo(map);
+L.tileLayer(BASEMAP_TILE_URL, { maxZoom: 19 }).addTo(map);
+L.control.attribution({ prefix: false }).addAttribution("© OpenStreetMap contributors · world-atlas").addTo(map);
 cityMarkerLayer = L.layerGroup().addTo(map);
 receivingCityMarkerLayer = L.layerGroup().addTo(map);
 receivingLetterMarkerLayer = L.layerGroup().addTo(map);
