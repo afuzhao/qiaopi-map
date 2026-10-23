@@ -151,9 +151,16 @@ COUNTRY_ALIASES: dict[str, str] = {
     "siam": "泰国",
     "星加坡": "新加坡",
     "新嘉坡": "新加坡",
+    "新架坡": "新加坡",
+    "新家坡": "新加坡",
+    "新加坡共和国": "新加坡",
     "singapore": "新加坡",
     "马来亚": "马来西亚",
     "马来": "马来西亚",
+    "马亚西亚": "马来西亚",
+    "马拉西亚": "马来西亚",
+    "马来西来": "马来西亚",
+    "侨来西亚": "马来西亚",
     "malaysia": "马来西亚",
     "malaya": "马来西亚",
     "hong kong": "香港",
@@ -287,11 +294,7 @@ def is_valid_receiving_place(place: str) -> bool:
         return False
     if OVERSEAS_RECV_BAD_RE.match(p):
         return False
-    if RECV_PLACE_RE.search(p):
-        return True
-    if p.startswith("广东") or p.startswith("福建"):
-        return True
-    return False
+    return RECV_PLACE_RE.fullmatch(p) is not None
 
 
 def parse_receiving_place(after_ji: str) -> tuple[str, str]:
@@ -335,7 +338,9 @@ def parse_receiving_place(after_ji: str) -> tuple[str, str]:
             recipient = (after[:idx] + tail[m2.end() :]).strip()
             return place, recipient
 
-    return legacy_place, legacy_recipient
+    # Do not turn an arbitrary four-character prefix into a destination. The
+    # original text is kept by the caller and can be reviewed separately.
+    return "", after
 
 
 def normalize_receiving_place(raw: object) -> str:
@@ -343,18 +348,8 @@ def normalize_receiving_place(raw: object) -> str:
     if not place:
         return ""
     if is_valid_receiving_place(place):
-        m = RECV_PLACE_RE.search(place)
-        if m:
-            p = m.group(0)
-            if p.startswith("关东"):
-                return "广东" + p[2:]
-            if p.startswith("港东"):
-                return "广东" + p[2:]
-            return p
-        return place
-    # Try to salvage embedded place
-    m = RECV_PLACE_RE.search(place)
-    if m:
+        m = RECV_PLACE_RE.fullmatch(place)
+        assert m is not None
         p = m.group(0)
         if p.startswith("关东"):
             return "广东" + p[2:]

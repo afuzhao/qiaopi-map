@@ -23,6 +23,7 @@ if str(_SCRIPTS_DIR) not in sys.path:
 
 from location_gazetteer import (  # noqa: E402
     CANONICAL_SEND_COUNTRIES,
+    RECV_PLACE_RE,
     clean_field_text,
     infer_country_from_hints,
     is_valid_receiving_place,
@@ -43,6 +44,18 @@ CHUNK_SLUG: dict[str, str] = {
     "老挝": "laos",
     "文莱": "brunei",
     "澳大利亚": "australia",
+}
+
+# These five coordinates recur on return letters. The source rows label the
+# receiving person with 回批 but leave the receiving-place text blank, so the
+# direction and destination are inferred explicitly rather than pretending the
+# destination is in China.
+RETURN_DESTINATIONS: dict[tuple[float, float], tuple[str, str]] = {
+    (1.3521, 103.8198): ("新加坡", "新加坡 (Singapore)"),
+    (3.1390, 101.6869): ("马来西亚", "吉隆坡 (Kuala Lumpur)"),
+    (13.7563, 100.5018): ("泰国", "曼谷 (Bangkok)"),
+    (16.8661, 96.1951): ("缅甸", "仰光 (Yangon)"),
+    (-6.2088, 106.8456): ("印度尼西亚", "雅加达 (Jakarta)"),
 }
 
 
@@ -71,6 +84,9 @@ def city_label_from_row(row: dict[str, Any]) -> str:
 
 
 def receiving_label_from_row(row: dict[str, Any]) -> str:
+    route = row.get("_route")
+    if isinstance(route, dict) and route.get("destinationStatus") in {"verified", "inferred"}:
+        return clean_field_text(route.get("destinationLabel"))
     raw = normalize_city_text(row.get("收批地_标准化") or row.get("收批地"))
     if not raw or raw == "不详":
         return ""
@@ -93,7 +109,7 @@ def row_country(row: dict[str, Any]) -> str:
         return inferred
     if std in CANONICAL_SEND_COUNTRIES:
         return std
-    return inferred if inferred else "其他"
+    return inferred if inferred in CANONICAL_SEND_COUNTRIES else "其他"
 
 
 def valid_lat_lng(lat: float | None, lng: float | None) -> bool:
@@ -125,6 +141,95 @@ def recv_lat_lng(row: dict[str, Any]) -> tuple[float | None, float | None]:
     if valid_lat_lng(lat, lng):
         return lat, lng
     return None, None
+
+
+def _return_destination(lat: float | None, lng: float | None) -> tuple[str, str] | None:
+    if lat is None or lng is None:
+        return None
+    return RETURN_DESTINATIONS.get((round(lat, 4), round(lng, 4)))
+
+
+def _repair_split_destination(raw_place: str, recipient: str) -> tuple[str, str] | None:
+    """Repair only a strict place name split across the two source fields."""
+    if not raw_place or not recipient or is_valid_receiving_place(raw_place):
+        return None
+    combined = f"{raw_place}{recipient}"
+    match = RECV_PLACE_RE.match(combined)
+    if not match or match.start() != 0 or match.end() <= len(raw_place):
+        return None
+    place = normalize_receiving_place(match.group(0))
+    repaired_recipient = combined[match.end() :].strip()
+    if not place or not repaired_recipient:
+        return None
+    return place, repaired_recipient
+
+
+def route_metadata(row: dict[str, Any], origin_country: str) -> dict[str, Any]:
+    """Derive map routing without changing the archival source fields."""
+    raw_place = clean_field_text(row.get("收批地_标准化") or row.get("收批地"))
+    recipient = clean_field_text(row.get("收批人"))
+    lat, lng = recv_lat_lng(row)
+    route: dict[str, Any] = {
+        "direction": "return" if "回批" in recipient else "outbound",
+        "originCountry": origin_country,
+        "destinationCountry": "",
+        "destinationLabel": "",
+        "destinationStatus": "unknown",
+        "parseMethod": "missing",
+        "recipientDisplay": recipient,
+    }
+
+    if route["direction"] == "return":
+        destination = _return_destination(lat, lng)
+        if destination:
+            route.update(
+                {
+                    "destinationCountry": destination[0],
+                    "destinationLabel": destination[1],
+                    "destinationStatus": "inferred",
+                    "parseMethod": "return_coordinate_inference",
+                    "destinationLat": lat,
+                    "destinationLng": lng,
+                }
+            )
+        elif lat is not None and lng is not None:
+            route.update(
+                {
+                    "destinationStatus": "needs_review",
+                    "parseMethod": "unrecognized_return_coordinates",
+                }
+            )
+        return route
+
+    normalized = normalize_receiving_place(raw_place)
+    parse_method = "source_field"
+    if not normalized:
+        repaired = _repair_split_destination(raw_place, recipient)
+        if repaired:
+            normalized, repaired_recipient = repaired
+            route["recipientDisplay"] = repaired_recipient
+            parse_method = "split_field_rejoin"
+
+    if normalized:
+        route.update(
+            {
+                "destinationCountry": "中国大陆",
+                "destinationLabel": normalized,
+                "destinationStatus": "verified" if parse_method == "source_field" else "inferred",
+                "parseMethod": parse_method,
+            }
+        )
+        if lat is not None and lng is not None:
+            route["destinationLat"] = lat
+            route["destinationLng"] = lng
+    elif raw_place or (lat is not None and lng is not None):
+        route.update(
+            {
+                "destinationStatus": "needs_review",
+                "parseMethod": "rejected_source_value" if raw_place else "coordinates_without_label",
+            }
+        )
+    return route
 
 
 def is_country_wide_row(row: dict[str, Any], country: str) -> bool:
@@ -190,21 +295,31 @@ def main() -> None:
     recv_city_rows: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     all_recv_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
     search: list[dict[str, Any]] = []
+    web_rows: list[dict[str, Any]] = []
+    route_status_counts: dict[str, int] = defaultdict(int)
+    direction_counts: dict[str, int] = defaultdict(int)
 
     for idx, row in enumerate(rows):
         country = row_country(row)
+        web_row = dict(row)
+        route = route_metadata(row, country)
+        web_row["_route"] = route
+        web_rows.append(web_row)
+        route_status_counts[route["destinationStatus"]] += 1
+        direction_counts[route["direction"]] += 1
+
         slug = CHUNK_SLUG.get(country, "other")
-        chunks[slug].append(row)
+        chunks[slug].append(web_row)
         local_idx = len(chunks[slug]) - 1
         letter_count_by_country[country] += 1
 
-        okey = origin_city_key(row, country)
-        origin_city_rows[(country, okey)].append(row)
+        okey = origin_city_key(web_row, country)
+        origin_city_rows[(country, okey)].append(web_row)
 
-        recv = receiving_label_from_row(row)
+        recv = receiving_label_from_row(web_row)
         if recv:
-            recv_city_rows[(country, recv)].append(row)
-            all_recv_rows[recv].append(row)
+            recv_city_rows[(country, recv)].append(web_row)
+            all_recv_rows[recv].append(web_row)
 
         search.append(
             {
@@ -213,10 +328,12 @@ def main() -> None:
                 "idx": local_idx,
                 "eid": row.get("EID") or "",
                 "sender": clean_field_text(row.get("寄批人")),
-                "recipient": clean_field_text(row.get("收批人")),
+                "recipient": route["recipientDisplay"],
                 "city": city_label_from_row(row),
                 "recv": recv or clean_field_text(row.get("收批地")),
                 "date": clean_field_text(row.get("寄批时间")),
+                "direction": route["direction"],
+                "destinationStatus": route["destinationStatus"],
             }
         )
 
@@ -248,7 +365,7 @@ def main() -> None:
         if not tokens:
             continue
         total = 0
-        for row in rows:
+        for row in web_rows:
             recv = (receiving_label_from_row(row) or clean_field_text(row.get("收批地"))).lower()
             if recv and any(t in recv for t in tokens):
                 total += 1
@@ -283,7 +400,7 @@ def main() -> None:
         print(f"  chunk {path.name}: {len(chunk_rows):,} rows, {size_mb:.2f} MB")
 
     index = {
-        "version": 1,
+        "version": 2,
         "totalCount": len(rows),
         "letterCountByCountry": dict(sorted(letter_count_by_country.items(), key=lambda kv: -kv[1])),
         "originCitiesByCountry": origin_cities,
@@ -291,6 +408,10 @@ def main() -> None:
         "allReceivingCities": all_receiving,
         "chunks": chunk_urls,
         "countryWideLabel": COUNTRY_WIDE_LABEL,
+        "dataQuality": {
+            "destinationStatusCounts": dict(sorted(route_status_counts.items())),
+            "directionCounts": dict(sorted(direction_counts.items())),
+        },
     }
 
     index_path = args.out_dir / "data_index.json"

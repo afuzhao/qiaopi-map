@@ -286,10 +286,10 @@ const I18N = {
     clickCountryHint: "点击高亮国家轮廓，或在下方选择国家。",
     loadedLetters: "已加载 {count} 封侨批；有数据的国家已在地图高亮。",
     sentFromCities: "寄批地城市",
-    receivingCities: "收批地城市（中国）",
+    receivingCities: "收批地城市",
     noCityInfo: "未找到城市级地点信息。",
     clickSentCity: "点击以缩放并查看从该城市寄出的侨批",
-    clickReceivingCity: "点击以缩放并查看寄至该中国城市的侨批",
+    clickReceivingCity: "点击以缩放并查看寄至该城市的侨批",
     totalLetters: "共 {count} 封侨批",
     cityOverview: "城市概览",
     backToCityList: "← 返回城市列表",
@@ -325,13 +325,21 @@ const I18N = {
     fieldDate: "寄批时间",
     fieldType: "类别",
     fieldBureau: "批局",
+    fieldDirection: "流向",
+    fieldRouteStatus: "地点判读",
+    directionOutbound: "侨汇寄回中国",
+    directionReturn: "回批寄往海外",
+    routeVerified: "原字段可确认",
+    routeInferred: "根据档案字段推定",
+    routeNeedsReview: "待人工核对",
+    routeUnknown: "不详",
     countryWide: "全国",
     regionWide: "全地区",
     unknownCity: "不详",
-    receivingControlShow: "显示中国收批地",
-    receivingControlHide: "隐藏中国收批地",
+    receivingControlShow: "显示全部收批地",
+    receivingControlHide: "隐藏全部收批地",
     legendLetter: "1点 = 1封侨批",
-    legendReceiving: "中国收批地城市",
+    legendReceiving: "收批地城市",
     loadingErrorHelp: "请使用本地网页服务器（如 VS Code Live Server）以正确加载远程 GeoJSON 与 data.json。",
     couldNotLoadTopojson: "无法加载 topojson-client。",
     couldNotLoadBoundaries: "无法加载国家边界数据",
@@ -374,10 +382,10 @@ const I18N = {
     clickCountryHint: "點擊高亮國家輪廓，或在下方選擇國家。",
     loadedLetters: "已載入 {count} 封僑批；有資料的國家已在地圖高亮。",
     sentFromCities: "寄批地城市",
-    receivingCities: "收批地城市（中國）",
+    receivingCities: "收批地城市",
     noCityInfo: "未找到城市級地點資訊。",
     clickSentCity: "點擊以縮放並查看從該城市寄出的僑批",
-    clickReceivingCity: "點擊以縮放並查看寄至該中國城市的僑批",
+    clickReceivingCity: "點擊以縮放並查看寄至該城市的僑批",
     totalLetters: "共 {count} 封僑批",
     cityOverview: "城市概覽",
     backToCityList: "← 返回城市列表",
@@ -413,13 +421,21 @@ const I18N = {
     fieldDate: "寄批時間",
     fieldType: "類別",
     fieldBureau: "批局",
+    fieldDirection: "流向",
+    fieldRouteStatus: "地點判讀",
+    directionOutbound: "僑匯寄回中國",
+    directionReturn: "回批寄往海外",
+    routeVerified: "原欄位可確認",
+    routeInferred: "根據檔案欄位推定",
+    routeNeedsReview: "待人工核對",
+    routeUnknown: "不詳",
     countryWide: "全國",
     regionWide: "全地區",
     unknownCity: "不詳",
-    receivingControlShow: "顯示中國收批地",
-    receivingControlHide: "隱藏中國收批地",
+    receivingControlShow: "顯示全部收批地",
+    receivingControlHide: "隱藏全部收批地",
     legendLetter: "1點 = 1封僑批",
-    legendReceiving: "中國收批地城市",
+    legendReceiving: "收批地城市",
     loadingErrorHelp: "請使用本地網頁伺服器（如 VS Code Live Server）以正確載入遠端 GeoJSON 與 data.json。",
     couldNotLoadTopojson: "無法載入 topojson-client。",
     couldNotLoadBoundaries: "無法載入國家邊界資料",
@@ -462,10 +478,10 @@ const I18N = {
     clickCountryHint: "Click a highlighted country outline or choose a country below.",
     loadedLetters: "{count} letters loaded. Countries with data are highlighted on the map.",
     sentFromCities: "Sent-from cities",
-    receivingCities: "Receiving cities in China",
+    receivingCities: "Destination cities",
     noCityInfo: "No city-level locations found.",
     clickSentCity: "Click to zoom and view letters sent from this city",
-    clickReceivingCity: "Click to zoom and view letters received in this China city",
+    clickReceivingCity: "Click to zoom and view letters received in this city",
     totalLetters: "{count} total letters",
     cityOverview: "City overview",
     backToCityList: "← Back to city list",
@@ -501,13 +517,21 @@ const I18N = {
     fieldDate: "Date",
     fieldType: "Type",
     fieldBureau: "Bureau",
+    fieldDirection: "Direction",
+    fieldRouteStatus: "Place interpretation",
+    directionOutbound: "Remittance sent to China",
+    directionReturn: "Reply sent overseas",
+    routeVerified: "Confirmed by source field",
+    routeInferred: "Inferred from archive fields",
+    routeNeedsReview: "Needs manual review",
+    routeUnknown: "Unknown",
     countryWide: "Country-wide",
     regionWide: "Region-wide",
     unknownCity: "Unknown",
     receivingControlShow: "Show receiving cities",
     receivingControlHide: "Hide receiving cities",
     legendLetter: "1 dot = 1 letter",
-    legendReceiving: "Receiving city in China",
+    legendReceiving: "Destination city",
     loadingErrorHelp: "Use a local web server (e.g. VS Code Live Server) so remote GeoJSON and data.json can load correctly.",
     couldNotLoadTopojson: "Could not load topojson-client.",
     couldNotLoadBoundaries: "Could not load country boundaries",
@@ -662,6 +686,8 @@ function normalizeCountryNameZh(rawValue) {
 }
 
 function getRowCountry(row) {
+  const routeCountry = row?._route?.originCountry;
+  if (routeCountry && (COUNTRY_ALIAS[routeCountry] || routeCountry === "其他")) return routeCountry;
   const standardized = (row["寄批地_国家_标准化"] || "").trim();
   if (standardized && COUNTRY_ALIAS[standardized]) return standardized;
   if (standardized) return normalizeCountryNameZh(standardized);
@@ -1133,6 +1159,10 @@ function isValidReceivingPlace(label) {
 }
 
 function receivingLabelFromRow(row) {
+  const route = row?._route;
+  if (route && ["verified", "inferred"].includes(route.destinationStatus)) {
+    return String(route.destinationLabel || "").trim();
+  }
   const raw = normalizeCityText(row["收批地_标准化"] || row["收批地"] || "");
   if (!isValidReceivingPlace(raw)) return "";
   return raw;
@@ -1383,6 +1413,13 @@ function originLatLngForRow(row) {
 }
 
 function receivingLatLngForRow(row) {
+  const route = row?._route;
+  if (route && ["verified", "inferred"].includes(route.destinationStatus)) {
+    const routeLat = Number(route.destinationLat);
+    const routeLng = Number(route.destinationLng);
+    if (isValidLatLng(routeLat, routeLng)) return [routeLat, routeLng];
+  }
+  if (route) return null;
   const lat = Number(row["收批地_纬度"]);
   const lng = Number(row["收批地_经度"]);
   if (isValidLatLng(lat, lng)) return [lat, lng];
@@ -1705,8 +1742,10 @@ function showLetterDetail(row) {
       <div class="df"><label>${escapeHtml(t("fieldCountry"))}</label><span>${getEffectiveCountry(row) || row["寄批地_国家"] || row["寄批地"] || "—"}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldCity"))}</label><span>${cityLabelFromRow(row, "—") || "—"}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldSender"))}</label><span>${row["寄批人"] || "—"}</span></div>
-      <div class="df"><label>${escapeHtml(t("fieldRecipient"))}</label><span>${row["收批人"] || "—"}</span></div>
+      <div class="df"><label>${escapeHtml(t("fieldRecipient"))}</label><span>${row?._route?.recipientDisplay || row["收批人"] || "—"}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldDestination"))}</label><span>${receivingLabelFromRow(row) || row["收批地"] || "—"}</span></div>
+      <div class="df"><label>${escapeHtml(t("fieldDirection"))}</label><span>${escapeHtml(t(row?._route?.direction === "return" ? "directionReturn" : "directionOutbound"))}</span></div>
+      <div class="df"><label>${escapeHtml(t("fieldRouteStatus"))}</label><span>${escapeHtml(t({ verified: "routeVerified", inferred: "routeInferred", needs_review: "routeNeedsReview" }[row?._route?.destinationStatus] || "routeUnknown"))}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldDate"))}</label><span>${row["寄批时间"] || "—"}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldType"))}</label><span>${row["类别"] || "—"}</span></div>
       <div class="df"><label>${escapeHtml(t("fieldBureau"))}</label><span>${row["寄批地_批局"] || "—"}</span></div>
@@ -1739,9 +1778,9 @@ function highlightOriginCity(row) {
 function highlightReceivingLocation(row) {
   receivingLocationHighlightLayer.clearLayers();
   originCityHighlightLayer.clearLayers();
-  const lat = Number(row["收批地_纬度"]);
-  const lng = Number(row["收批地_经度"]);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const destination = receivingLatLngForRow(row);
+  if (!destination) return;
+  const [lat, lng] = destination;
   const recvName = receivingLabelFromRow(row) || row["收批地"] || t("fieldDestination");
   const marker = L.circleMarker([lat, lng], {
     radius: 10,
